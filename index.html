@@ -199,7 +199,8 @@ table.res .total td{background:var(--card-soft);font-weight:700;color:var(--ink)
 /* фиксированные константы по ТЗ */
 const C_WHAT="Маркетинг", C_GROUP="Реклама", C_SPEC="реклама WB";
 /* строка операции удержания в отчёте реализации */
-const PROMO_RE=/продвижени/i;
+const PROMO_RE=/продвижени|wb\s*продвиж|promotion/i;
+function isPromo(r){return[r.supplier_oper_name,r.bonus_type_name,r.doc_type_name].some(f=>PROMO_RE.test(f||''));}
 const WB="https://statistics-api.wildberries.ru";
 
 const ordBody=document.querySelector('#ordTbl tbody');
@@ -283,13 +284,27 @@ async function loadFromWB(){
     /* группировка по отчёту, сумма удержаний ВБ-продвижения */
     const reps=new Map();
     all.forEach(r=>{
-      if(!PROMO_RE.test(r.supplier_oper_name||''))return;
+      if(!isPromo(r))return;
       const id=r.realizationreport_id;
       const e=reps.get(id)||{id,create:r.create_dt,from:r.date_from,to:r.date_to,sum:0};
       e.sum+=Math.abs(num(r.deduction)); reps.set(id,e);
     });
     const weeks=[...reps.values()].filter(w=>w.sum>0).sort((a,b)=>new Date(a.create)-new Date(b.create));
-    if(!weeks.length)throw new Error('Удержаний «ВБ.Продвижение» в отчётах месяца не найдено');
+    if(!weeks.length){
+      /* диагностика: показываем реальные значения полей, чтобы понять, как WB называет промо */
+      const ops=new Set(), bns=new Set(), docs=new Set();
+      all.filter(r=>Math.abs(num(r.deduction))>0).forEach(r=>{
+        ops.add(r.supplier_oper_name||''); bns.add(r.bonus_type_name||''); docs.add(r.doc_type_name||'');
+      });
+      throw new Error(
+        'Удержаний «WB Продвижение» не найдено.\n\n'+
+        'Строк в отчёте: '+all.length+'.\n'+
+        'Строк с deduction>0: '+all.filter(r=>Math.abs(num(r.deduction))>0).length+'.\n\n'+
+        'supplier_oper_name: '+[...ops].join(' | ')+'\n'+
+        'bonus_type_name: '+[...bns].join(' | ')+'\n'+
+        'doc_type_name: '+[...docs].join(' | ')
+      );
+    }
 
     /* заполняем таблицы */
     ordBody.innerHTML=''; wkBody.innerHTML='';
