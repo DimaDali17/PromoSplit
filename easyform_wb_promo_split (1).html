@@ -1,0 +1,401 @@
+<!-- EasyForm — распределение расходов на ВБ-продвижение по артикулам -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EasyForm · Распределение ВБ-продвижения</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;500;600;700&family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg1:#e8e0d2; --bg2:#f1ece1; --bg3:#ddd3c2;
+  --card:#faf6ee; --card-soft:#f3eee3;
+  --ink:#2b2724; --ink-soft:#5f574d;
+  --muted:#9a9082; --line:#ece5d8; --line-2:#e2dac9;
+  --field:#ffffff; --field-active:#e8eefc; --field-active-line:#bcccf0;
+  --green-bg:#e7ede1; --green:#6f9b5f; --green-ink:#6c7a61;
+  --link:#b0894f; --accent:#2b2724;
+  --warn-bg:#f6ecdc; --warn-ink:#8a6a32; --err-bg:#f6e3df; --err-ink:#9a4a3c;
+  --shadow:0 30px 60px -28px rgba(70,55,35,.35), 0 8px 22px -14px rgba(70,55,35,.25);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  font-family:'Onest',system-ui,sans-serif;color:var(--ink);min-height:100vh;padding:34px 18px 70px;
+  background:
+    radial-gradient(1200px 600px at 78% -8%, #f3ede1 0%, rgba(243,237,225,0) 60%),
+    radial-gradient(900px 700px at 8% 110%, #ddd2c0 0%, rgba(221,210,192,0) 55%),
+    linear-gradient(155deg,var(--bg1) 0%, var(--bg2) 48%, var(--bg3) 100%);
+  background-attachment:fixed;
+}
+.wrap{max-width:1060px;margin:0 auto}
+.card{background:var(--card);border:1px solid rgba(255,255,255,.6);border-radius:28px;box-shadow:var(--shadow);padding:30px 30px 34px}
+.card + .card{margin-top:22px}
+.head{display:flex;align-items:center;gap:16px;margin-bottom:24px}
+.logo{width:62px;height:62px;border-radius:15px;flex:0 0 auto;background:linear-gradient(150deg,#3a342e,#211e1b);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 8px 18px -10px rgba(40,30,20,.6);position:relative;overflow:hidden}
+.logo::after{content:"";position:absolute;inset:0;background:radial-gradient(40px 40px at 70% 25%, rgba(255,255,255,.18), transparent 60%)}
+.logo span{font-family:'Comfortaa',cursive;font-weight:700;font-size:26px;color:#efe7da;letter-spacing:-1px;z-index:1}
+.brand h1{font-family:'Comfortaa',cursive;font-weight:600;font-size:30px;margin:0;line-height:1}
+.brand p{margin:7px 0 0;font-size:12px;letter-spacing:1.6px;color:var(--muted);font-weight:600;text-transform:uppercase}
+.pill{display:flex;align-items:center;gap:10px;background:var(--green-bg);color:var(--green-ink);border-radius:13px;padding:13px 18px;font-size:14px;font-weight:500}
+.pill .dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(111,155,95,.18)}
+.sec-title{display:flex;align-items:baseline;gap:10px;margin:4px 0 14px}
+.sec-num{font-family:'Comfortaa',cursive;font-weight:700;color:var(--link);font-size:15px}
+.sec-title h2{font-size:16px;margin:0;font-weight:600}
+.sec-title .hint{font-size:12.5px;color:var(--muted);margin-left:auto;font-weight:500}
+label.lab{display:block;font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 7px}
+.tbl{width:100%;border-collapse:separate;border-spacing:0}
+.tbl th{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);font-weight:600;text-align:left;padding:0 10px 8px}
+.tbl td{padding:4px 6px}
+.tbl input{width:100%;border:1px solid var(--line);background:var(--field);border-radius:11px;padding:11px 13px;font-family:'Onest',sans-serif;font-size:14.5px;color:var(--ink);transition:.16s}
+.tbl input.mono{font-family:'JetBrains Mono',monospace;font-size:13px}
+.tbl input:focus{outline:none;background:var(--field-active);border-color:var(--field-active-line)}
+.tbl td.del{width:38px;text-align:center}
+.xbtn{border:none;background:transparent;color:var(--muted);cursor:pointer;width:30px;height:30px;border-radius:9px;font-size:17px;line-height:1;transition:.15s}
+.xbtn:hover{background:#efe7d8;color:#b35a4a}
+.addrow{margin-top:10px;border:1px dashed var(--line-2);background:transparent;color:var(--ink-soft);border-radius:12px;padding:11px 14px;font-family:'Onest',sans-serif;font-size:13.5px;font-weight:600;cursor:pointer;width:100%;transition:.15s}
+.addrow:hover{background:var(--card-soft);border-color:#cfc4b0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px 18px}
+.field input,.field select{width:100%;border:1px solid var(--line);background:var(--field);border-radius:12px;padding:12px 14px;font-family:'Onest',sans-serif;font-size:14.5px;color:var(--ink)}
+.field input.mono{font-family:'JetBrains Mono',monospace;font-size:13px}
+.field input:focus,.field select:focus{outline:none;background:var(--field-active);border-color:var(--field-active-line)}
+.field small{display:block;color:var(--muted);font-size:11.5px;margin-top:6px;line-height:1.35}
+.seg{display:flex;background:var(--card-soft);border:1px solid var(--line);border-radius:12px;padding:4px;gap:4px}
+.seg button{flex:1;border:none;background:transparent;border-radius:9px;padding:9px 10px;cursor:pointer;font-family:'Onest',sans-serif;font-size:13px;font-weight:600;color:var(--ink-soft);transition:.15s}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 2px 8px -4px rgba(60,45,25,.35)}
+.consts{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.const{background:var(--card-soft);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:13px;color:var(--ink-soft)}
+.const b{color:var(--ink);font-weight:600}
+.note{background:var(--warn-bg);color:var(--warn-ink);border-radius:12px;padding:11px 14px;font-size:12.5px;line-height:1.45;margin-top:14px}
+.run{margin-top:22px;width:100%;border:none;cursor:pointer;background:linear-gradient(180deg,#363029,var(--accent));color:#f5f0e6;font-family:'Comfortaa',cursive;font-weight:600;font-size:17px;border-radius:16px;padding:18px;letter-spacing:.3px;box-shadow:0 14px 26px -16px rgba(40,30,20,.8);transition:.16s}
+.run:hover{filter:brightness(1.08)}
+.run:active{transform:translateY(1px)}
+.run.alt{background:linear-gradient(180deg,#cda35d,#b0894f)}
+.run:disabled{opacity:.6;cursor:wait}
+.status{margin-top:12px;font-size:13px;color:var(--ink-soft);min-height:18px}
+.status.err{color:var(--err-ink)}
+#out{display:none}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px}
+.stat{background:var(--card-soft);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.stat .k{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);font-weight:600}
+.stat .v{font-family:'Comfortaa',cursive;font-weight:700;font-size:20px;margin-top:6px}
+.shares{margin:6px 0 22px}
+.shares .bar{display:flex;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)}
+.shares .bar:last-child{border-bottom:none}
+.shares .name{flex:0 0 230px;font-size:13px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shares .track{flex:1;height:9px;background:var(--card-soft);border-radius:6px;overflow:hidden}
+.shares .fill{height:100%;background:linear-gradient(90deg,#c79a59,#8c6f3e);border-radius:6px}
+.shares .pct{flex:0 0 64px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--ink)}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 16px}
+.tool{border:1px solid var(--line-2);background:var(--card);border-radius:12px;padding:11px 16px;cursor:pointer;font-family:'Onest',sans-serif;font-weight:600;font-size:13.5px;color:var(--ink);transition:.15s}
+.tool:hover{background:var(--card-soft)}
+.tool.primary{background:var(--accent);color:#f3eee3;border-color:var(--accent)}
+.tool.primary:hover{filter:brightness(1.1)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px}
+table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
+table.res th{background:var(--card-soft);text-align:left;padding:11px 14px;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);font-weight:600;position:sticky;top:0;border-bottom:1px solid var(--line)}
+table.res td{padding:10px 14px;border-bottom:1px solid var(--line);color:var(--ink-soft)}
+table.res tr:last-child td{border-bottom:none}
+table.res td.mono,table.res td.key{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink)}
+table.res td.sum{text-align:right;font-family:'JetBrains Mono',monospace;font-weight:500;color:var(--ink)}
+table.res tr:nth-child(even) td{background:rgba(243,238,227,.5)}
+table.res .total td{background:var(--card-soft);font-weight:700;color:var(--ink)}
+.foot{font-size:12px;color:var(--muted);margin-top:14px;line-height:1.5}
+@media(max-width:560px){.card{padding:22px 16px 26px;border-radius:22px}.brand h1{font-size:25px}.shares .name{flex-basis:130px}}
+</style>
+
+<div class="wrap">
+  <div class="card">
+    <div class="head">
+      <div class="logo"><span>Ef</span></div>
+      <div class="brand"><h1>EasyForm</h1><p>Wildberries · Распределение ВБ-продвижения</p></div>
+    </div>
+    <div class="pill"><span class="dot"></span> Топ-10 артикулов = 100% база · расходы из «Прочие удержания» → «Оказание услуг ВБ.Продвижение»</div>
+  </div>
+
+  <!-- 0. API -->
+  <div class="card">
+    <div class="sec-title"><span class="sec-num">0</span><h2>Загрузка из WB через прокси</h2><span class="hint">или заполните таблицы вручную ниже</span></div>
+    <div class="grid">
+      <div class="field" style="grid-column:1/-1">
+        <label class="lab">URL прокси (Cloudflare Worker)</label>
+        <input id="proxy" class="mono" value="https://wb-proxy.ooo6311ooo.workers.dev" placeholder="https://wb-proxy.xxx.workers.dev">
+      </div>
+      <div class="field" style="grid-column:1/-1">
+        <label class="lab">API токен WB (Статистика)</label>
+        <input id="token" type="password" placeholder="оставьте пустым, если токен задан секретом в воркере">
+      </div>
+      <div class="field">
+        <label class="lab">Месяц</label>
+        <input id="month" type="month" min="2026-01" value="2026-05">
+      </div>
+    </div>
+    <button class="run alt" id="loadBtn" onclick="loadFromWB()">Загрузить из WB</button>
+    <div class="status" id="apiStatus"></div>
+  </div>
+
+  <!-- 1. Orders -->
+  <div class="card">
+    <div class="sec-title"><span class="sec-num">1</span><h2>Заказы за месяц</h2><span class="hint">/api/v1/supplier/orders</span></div>
+    <div class="scroll" style="border:none">
+      <table class="tbl" id="ordTbl"><thead><tr>
+        <th style="width:34%">Артикул продавца</th><th style="width:42%">Предмет</th><th style="width:20%">Заказы</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <button class="addrow" onclick="addOrd()">+ Добавить артикул</button>
+  </div>
+
+  <!-- 2. Weekly retentions -->
+  <div class="card">
+    <div class="sec-title"><span class="sec-num">2</span><h2>Недельные удержания «Оказание услуг ВБ.Продвижение»</h2><span class="hint">reportDetailByPeriod</span></div>
+    <div class="scroll" style="border:none">
+      <table class="tbl" id="wkTbl"><thead><tr>
+        <th style="width:24%">Дата формирования</th><th style="width:34%">Период отчёта</th><th style="width:30%">Удержание, ₽</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <button class="addrow" onclick="addWk()">+ Добавить недельный отчёт</button>
+  </div>
+
+  <!-- 3. Settings -->
+  <div class="card">
+    <div class="sec-title"><span class="sec-num">3</span><h2>Параметры</h2></div>
+    <div class="grid">
+      <div class="field"><label class="lab">Топ-артикулов (база 100%)</label><input id="topN" type="number" min="1" value="10"></div>
+      <div class="field"><label class="lab">Округление суммы</label>
+        <div class="seg" id="segRound"><button class="on" data-v="0" onclick="seg('segRound',this)">До рубля</button><button data-v="2" onclick="seg('segRound',this)">До копеек</button></div>
+        <small>Остаток округления добавляется к крупнейшим артикулам — сумма строк точно равна удержанию.</small>
+      </div>
+      <div class="field" style="display:flex;align-items:flex-end;gap:9px">
+        <input type="checkbox" id="incPeriod" style="width:auto;margin-bottom:13px">
+        <label for="incPeriod" style="font-size:13.5px;color:var(--ink-soft);cursor:pointer;margin-bottom:11px">Колонка «Период отчёта»</label>
+      </div>
+    </div>
+    <label class="lab" style="margin-top:18px">Фиксированные значения колонок</label>
+    <div class="consts">
+      <span class="const">Что — <b>Маркетинг</b></span>
+      <span class="const">Что (группа) — <b>Реклама</b></span>
+      <span class="const">Конкретнее — <b>реклама WB</b></span>
+    </div>
+    <button class="run" onclick="run()">Распределить расходы</button>
+  </div>
+
+  <!-- Result -->
+  <div class="card" id="out">
+    <div class="sec-title"><span class="sec-num">✓</span><h2>Результат</h2></div>
+    <div class="stats" id="stats"></div>
+    <label class="lab" style="margin-bottom:10px">Доли артикулов (топ за месяц)</label>
+    <div class="shares" id="shares"></div>
+    <div class="toolbar">
+      <button class="tool primary" onclick="exXlsx()">Скачать XLSX</button>
+      <button class="tool" onclick="exTsv()" id="tsvBtn">Скопировать для Excel</button>
+      <button class="tool" onclick="exCsv()">Скачать CSV</button>
+    </div>
+    <div class="scroll"><table class="res" id="resTbl"></table></div>
+    <div class="foot" id="foot"></div>
+  </div>
+</div>
+
+<script>
+/* фиксированные константы по ТЗ */
+const C_WHAT="Маркетинг", C_GROUP="Реклама", C_SPEC="реклама WB";
+/* строка операции удержания в отчёте реализации */
+const PROMO_RE=/продвижени/i;
+
+const ordBody=document.querySelector('#ordTbl tbody');
+const wkBody=document.querySelector('#wkTbl tbody');
+
+function addOrd(sku='',subj='',ord=''){
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td><input class="mono" value="${sku}" placeholder="ART-123"></td>
+    <td><input value="${subj}" placeholder="Футболки"></td>
+    <td><input class="mono" inputmode="numeric" value="${ord}" placeholder="100"></td>
+    <td class="del"><button class="xbtn" onclick="this.closest('tr').remove()">×</button></td>`;
+  ordBody.appendChild(tr);
+}
+function addWk(date='',period='',amount=''){
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td><input class="mono" value="${date}" placeholder="12.05.2025"></td>
+    <td><input value="${period}" placeholder="04.05–10.05"></td>
+    <td><input class="mono" inputmode="numeric" value="${amount}" placeholder="10000"></td>
+    <td class="del"><button class="xbtn" onclick="this.closest('tr').remove()">×</button></td>`;
+  wkBody.appendChild(tr);
+}
+/* демо */
+addOrd('ART-123','Футболки','100');addOrd('ART-321','Футболки','50');addOrd('ART-777','Худи','25');
+addWk('12.05.2026','04.05–10.05','10000');addWk('19.05.2026','11.05–17.05','10900');addWk('26.05.2026','18.05–24.05','8500');
+
+function seg(id,btn){[...document.querySelectorAll('#'+id+' button')].forEach(b=>b.classList.remove('on'));btn.classList.add('on');}
+function segVal(id){return document.querySelector('#'+id+' button.on').dataset.v;}
+function num(v){const n=parseFloat(String(v).replace(/\s|\u00A0/g,'').replace(',','.'));return isNaN(n)?0:n;}
+function fmt(n,dec){return n.toLocaleString('ru-RU',{minimumFractionDigits:dec,maximumFractionDigits:dec});}
+function pad(n){return String(n).padStart(2,'0');}
+function ddmmyyyy(iso){const d=new Date(iso);if(isNaN(d))return String(iso||'');return pad(d.getDate())+'.'+pad(d.getMonth()+1)+'.'+d.getFullYear();}
+
+/* ---------- API ---------- */
+async function getJson(url,token){
+  const h={};if(token)h['Authorization']=token;
+  const r=await fetch(url,{headers:h});
+  const t=await r.text();
+  if(!r.ok)throw new Error('HTTP '+r.status+' · '+t.slice(0,160));
+  try{return JSON.parse(t);}catch(e){throw new Error('Ответ не JSON: '+t.slice(0,160));}
+}
+async function loadFromWB(){
+  const proxy=document.getElementById('proxy').value.trim().replace(/\/+$/,'');
+  const token=document.getElementById('token').value.trim();
+  const month=document.getElementById('month').value; // YYYY-MM
+  const st=document.getElementById('apiStatus'); st.className='status';
+  const btn=document.getElementById('loadBtn');
+  if(!proxy){st.className='status err';st.textContent='Укажите URL прокси';return;}
+  if(!month){st.className='status err';st.textContent='Выберите месяц';return;}
+  const [y,m]=month.split('-').map(Number);
+  const start=`${y}-${pad(m)}-01`;
+  const endD=new Date(y,m,0).getDate();
+  const end=`${y}-${pad(m)}-${pad(endD)}`;
+
+  btn.disabled=true;
+  try{
+    /* 1) заказы */
+    st.textContent='Загружаю заказы…';
+    const orders=await getJson(`${proxy}/api/v1/supplier/orders?dateFrom=${start}T00:00:00&flag=0`,token);
+    const byArt=new Map();
+    (orders||[]).forEach(o=>{
+      const d=String(o.date||'').slice(0,10);
+      if(d<start||d>end)return;                       // только заказы этого месяца по дате заказа
+      const art=(o.supplierArticle||o.nmId||'').toString().trim();
+      if(!art)return;
+      const e=byArt.get(art)||{art,subj:o.subject||'',n:0};
+      e.n++; if(!e.subj)e.subj=o.subject||''; byArt.set(art,e);
+    });
+    if(!byArt.size)throw new Error('Заказов за месяц не найдено (проверьте токен/месяц)');
+
+    /* 2) финансовый отчёт, пагинация по rrd_id */
+    st.textContent='Загружаю финансовый отчёт…';
+    let rrd=0, all=[], guard=0;
+    while(guard++<50){
+      const batch=await getJson(`${proxy}/api/v5/supplier/reportDetailByPeriod?dateFrom=${start}&dateTo=${end}&rrdid=${rrd}&limit=100000`,token);
+      if(!Array.isArray(batch)||!batch.length)break;
+      all=all.concat(batch);
+      const last=batch[batch.length-1];
+      if(!last||!last.rrd_id||last.rrd_id===rrd)break;
+      rrd=last.rrd_id;
+      if(batch.length<100000)break;
+    }
+    /* группировка по отчёту, сумма удержаний ВБ-продвижения */
+    const reps=new Map();
+    all.forEach(r=>{
+      if(!PROMO_RE.test(r.supplier_oper_name||''))return;
+      const id=r.realizationreport_id;
+      const e=reps.get(id)||{id,create:r.create_dt,from:r.date_from,to:r.date_to,sum:0};
+      e.sum+=Math.abs(num(r.deduction)); reps.set(id,e);
+    });
+    const weeks=[...reps.values()].filter(w=>w.sum>0).sort((a,b)=>new Date(a.create)-new Date(b.create));
+    if(!weeks.length)throw new Error('Удержаний «ВБ.Продвижение» в отчётах месяца не найдено');
+
+    /* заполняем таблицы */
+    ordBody.innerHTML=''; wkBody.innerHTML='';
+    [...byArt.values()].sort((a,b)=>b.n-a.n).forEach(e=>addOrd(e.art,e.subj,e.n));
+    weeks.forEach(w=>{
+      const per=(String(w.from).slice(8,10)+'.'+String(w.from).slice(5,7))+'–'+(String(w.to).slice(8,10)+'.'+String(w.to).slice(5,7));
+      addWk(ddmmyyyy(w.create),per,Math.round(w.sum));
+    });
+    st.textContent=`Готово: ${byArt.size} артикулов, ${weeks.length} недельных отчётов. Жму «Распределить»…`;
+    run();
+  }catch(e){
+    st.className='status err'; st.textContent='Ошибка: '+e.message;
+  }finally{ btn.disabled=false; }
+}
+
+/* ---------- core ---------- */
+let RESULT=null, HEADER=null;
+function run(){
+  const map=new Map();
+  [...ordBody.querySelectorAll('tr')].forEach(tr=>{
+    const i=tr.querySelectorAll('input');
+    const sku=i[0].value.trim(),subj=i[1].value.trim(),ord=num(i[2].value);
+    if(!sku||ord<=0)return;
+    if(map.has(sku)){const o=map.get(sku);o.orders+=ord;if(!o.subject)o.subject=subj;}
+    else map.set(sku,{sku,subject:subj,orders:ord});
+  });
+  let items=[...map.values()];
+  if(!items.length){alert('Нет артикулов с заказами > 0');return;}
+  const weeks=[];
+  [...wkBody.querySelectorAll('tr')].forEach(tr=>{
+    const i=tr.querySelectorAll('input');
+    const date=i[0].value.trim(),period=i[1].value.trim(),amount=num(i[2].value);
+    if(amount>0)weeks.push({date,period,amount});
+  });
+  if(!weeks.length){alert('Нет недельных удержаний > 0');return;}
+
+  const N=Math.max(1,parseInt(document.getElementById('topN').value)||10);
+  const dec=parseInt(segVal('segRound'));
+  const incPeriod=document.getElementById('incPeriod').checked;
+
+  const totalAll=items.reduce((s,x)=>s+x.orders,0);
+  items.sort((a,b)=>b.orders-a.orders);
+  const top=items.slice(0,N);
+  const baseTop=top.reduce((s,x)=>s+x.orders,0);
+  top.forEach(x=>x.share=x.orders/baseTop);          // топ-N = 100% база
+
+  const rows=[]; const step=Math.pow(10,dec);
+  weeks.forEach(w=>{
+    const units=top.map(x=>x.share*w.amount*step);
+    const floors=units.map(u=>Math.floor(u));
+    let left=Math.round(w.amount*step)-floors.reduce((s,u)=>s+u,0);
+    const order=units.map((u,idx)=>({idx,frac:u-floors[idx]})).sort((a,b)=>b.frac-a.frac);
+    for(let k=0;k<order.length&&left>0;k++){floors[order[k].idx]++;left--;}
+    const finals=floors.map(u=>u/step);
+    top.forEach((x,idx)=>rows.push({date:w.date,period:w.period,subject:x.subject,sku:x.sku,
+      key:x.subject+';'+x.sku,what:C_WHAT,group:C_GROUP,spec:C_SPEC,sum:finals[idx]}));
+  });
+
+  HEADER=incPeriod
+    ?['Дата','Период отчёта','Предмет','Артикул продавца','Предмет;Артикул продавца','Что','Что (группа)','Конкретнее','Сумма']
+    :['Дата','Предмет','Артикул продавца','Предмет;Артикул продавца','Что','Что (группа)','Конкретнее','Сумма'];
+  RESULT={rows,incPeriod,dec};
+  render(top,weeks,rows,dec,totalAll,baseTop);
+}
+
+function render(top,weeks,rows,dec,totalAll,baseTop){
+  const totalRet=weeks.reduce((s,w)=>s+w.amount,0);
+  const distributed=rows.reduce((s,r)=>s+r.sum,0);
+  document.getElementById('stats').innerHTML=`
+    <div class="stat"><div class="k">Удержано всего</div><div class="v">${fmt(totalRet,dec)} ₽</div></div>
+    <div class="stat"><div class="k">Распределено</div><div class="v">${fmt(distributed,dec)} ₽</div></div>
+    <div class="stat"><div class="k">Артикулов</div><div class="v">${top.length}</div></div>
+    <div class="stat"><div class="k">Недельных отчётов</div><div class="v">${weeks.length}</div></div>
+    <div class="stat"><div class="k">Строк</div><div class="v">${rows.length}</div></div>`;
+  document.getElementById('shares').innerHTML=top.map(x=>{
+    const pct=x.share*100;
+    return `<div class="bar"><div class="name" title="${x.subject} · ${x.sku}">${x.subject||'—'} · ${x.sku}</div>
+      <div class="track"><div class="fill" style="width:${Math.max(2,pct).toFixed(2)}%"></div></div>
+      <div class="pct">${pct.toFixed(2)}%</div></div>`;
+  }).join('');
+  const ths=HEADER.map(h=>`<th>${h}</th>`).join('');
+  const skuCol=RESULT.incPeriod?3:2, keyCol=RESULT.incPeriod?4:3;
+  const body=rows.map(r=>{
+    const cells=RESULT.incPeriod?[r.date,r.period,r.subject,r.sku,r.key,r.what,r.group,r.spec]
+                                :[r.date,r.subject,r.sku,r.key,r.what,r.group,r.spec];
+    const tds=cells.map((c,i)=>{const cls=(i===skuCol?'mono':'')+(i===keyCol?' key':'');return `<td class="${cls.trim()}">${c}</td>`;}).join('');
+    return `<tr>${tds}<td class="sum">${fmt(r.sum,dec)}</td></tr>`;
+  }).join('');
+  const total=`<tr class="total"><td colspan="${HEADER.length-1}">Итого распределено</td><td class="sum">${fmt(distributed,dec)}</td></tr>`;
+  document.getElementById('resTbl').innerHTML=`<thead><tr>${ths}</tr></thead><tbody>${body}${total}</tbody>`;
+  document.getElementById('foot').textContent=`База доли — топ-${top.length} (${fmt(baseTop,0)} из ${fmt(totalAll,0)} заказов), доли нормированы к 100%, вся сумма удержаний разложена по артикулам.`;
+  const out=document.getElementById('out'); out.style.display='block';
+  out.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+/* ---------- exports ---------- */
+function toAOA(){
+  const A=[HEADER.slice()];
+  RESULT.rows.forEach(r=>{
+    const base=RESULT.incPeriod?[r.date,r.period,r.subject,r.sku,r.key,r.what,r.group,r.spec]
+                               :[r.date,r.subject,r.sku,r.key,r.what,r.group,r.spec];
+    base.push(Number(r.sum.toFixed(RESULT.dec))); A.push(base);
+  });
+  return A;
+}
+function exXlsx(){if(!RESULT)return;const ws=XLSX.utils.aoa_to_sheet(toAOA());const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'ВБ-продвижение');XLSX.writeFile(wb,'vb_promo_split.xlsx');}
+function exTsv(){if(!RESULT)return;const tsv=toAOA().map(r=>r.join('\t')).join('\n');navigator.clipboard.writeText(tsv).then(()=>{const b=document.getElementById('tsvBtn'),t=b.textContent;b.textContent='Скопировано ✓';setTimeout(()=>b.textContent=t,1600);},()=>alert('Не удалось скопировать — выгрузите XLSX'));}
+function exCsv(){if(!RESULT)return;const q=v=>{const s=String(v);return /[",;\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};const csv=toAOA().map(r=>r.map(q).join(',')).join('\r\n');const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='vb_promo_split.csv';a.click();}
+</script>
