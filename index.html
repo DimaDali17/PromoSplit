@@ -256,7 +256,7 @@ async function loadFromWB(){
   try{
     /* 1) заказы */
     st.textContent='Загружаю заказы…';
-    const orders=await getJson(proxy,token,`${WB}/api/v1/supplier/orders?dateFrom=${start}T00:00:00&flag=0`);
+    const orders=await getJson(proxy,token,`${WB}/api/v1/supplier/orders?dateFrom=${start}T00:00:00Z&flag=0`);
     const byArt=new Map();
     (orders||[]).forEach(o=>{
       const d=String(o.date||'').slice(0,10);
@@ -272,7 +272,7 @@ async function loadFromWB(){
     st.textContent='Загружаю финансовый отчёт…';
     let rrd=0, all=[], guard=0;
     while(guard++<50){
-      const batch=await getJson(proxy,token,`${WB}/api/v5/supplier/reportDetailByPeriod?dateFrom=${start}&dateTo=${end}&rrdid=${rrd}&limit=100000`);
+      const batch=await getJson(proxy,token,`${WB}/api/v5/supplier/reportDetailByPeriod?dateFrom=${start}T00:00:00Z&dateTo=${end}T23:59:59Z&rrdid=${rrd}&limit=100000&period=weekly`);
       if(!Array.isArray(batch)||!batch.length)break;
       all=all.concat(batch);
       const last=batch[batch.length-1];
