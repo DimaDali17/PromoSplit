@@ -200,6 +200,7 @@ table.res .total td{background:var(--card-soft);font-weight:700;color:var(--ink)
 const C_WHAT="Маркетинг", C_GROUP="Реклама", C_SPEC="реклама WB";
 /* строка операции удержания в отчёте реализации */
 const PROMO_RE=/продвижени/i;
+const WB="https://statistics-api.wildberries.ru";
 
 const ordBody=document.querySelector('#ordTbl tbody');
 const wkBody=document.querySelector('#wkTbl tbody');
@@ -232,12 +233,11 @@ function pad(n){return String(n).padStart(2,'0');}
 function ddmmyyyy(iso){const d=new Date(iso);if(isNaN(d))return String(iso||'');return pad(d.getDate())+'.'+pad(d.getMonth()+1)+'.'+d.getFullYear();}
 
 /* ---------- API ---------- */
-async function getJson(url,token){
-  const h={};if(token)h['Authorization']=token;
-  const r=await fetch(url,{headers:h});
+async function getJson(proxy,token,wbUrl){
+  const r=await fetch(proxy+'/?url='+encodeURIComponent(wbUrl),{headers:token?{'X-WB-Token':token}:{}});
   const t=await r.text();
-  if(!r.ok)throw new Error('HTTP '+r.status+' · '+t.slice(0,160));
-  try{return JSON.parse(t);}catch(e){throw new Error('Ответ не JSON: '+t.slice(0,160));}
+  if(!r.ok)throw new Error('HTTP '+r.status+' · '+t.slice(0,200));
+  try{return JSON.parse(t);}catch(e){throw new Error('Ответ не JSON: '+t.slice(0,200));}
 }
 async function loadFromWB(){
   const proxy=document.getElementById('proxy').value.trim().replace(/\/+$/,'');
@@ -256,7 +256,7 @@ async function loadFromWB(){
   try{
     /* 1) заказы */
     st.textContent='Загружаю заказы…';
-    const orders=await getJson(`${proxy}/api/v1/supplier/orders?dateFrom=${start}T00:00:00&flag=0`,token);
+    const orders=await getJson(proxy,token,`${WB}/api/v1/supplier/orders?dateFrom=${start}T00:00:00&flag=0`);
     const byArt=new Map();
     (orders||[]).forEach(o=>{
       const d=String(o.date||'').slice(0,10);
@@ -272,7 +272,7 @@ async function loadFromWB(){
     st.textContent='Загружаю финансовый отчёт…';
     let rrd=0, all=[], guard=0;
     while(guard++<50){
-      const batch=await getJson(`${proxy}/api/v5/supplier/reportDetailByPeriod?dateFrom=${start}&dateTo=${end}&rrdid=${rrd}&limit=100000`,token);
+      const batch=await getJson(proxy,token,`${WB}/api/v5/supplier/reportDetailByPeriod?dateFrom=${start}&dateTo=${end}&rrdid=${rrd}&limit=100000`);
       if(!Array.isArray(batch)||!batch.length)break;
       all=all.concat(batch);
       const last=batch[batch.length-1];
