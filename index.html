@@ -52,7 +52,7 @@ table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
   </div>
   <!-- 1. Ad spend -->
   <div class="card">
-    <div class="sec-title"><span class="sec-num">1</span><h2>Расходы на рекламу по артикулам</h2><span class="hint">advert-api · fullstats</span></div>
+    <div class="sec-title"><span class="sec-num">1</span><h2>Расходы на рекламу по артикулам</h2><span class="hint">advert-api · /adv/v1/upd</span></div>
     <div class="scroll" style="border:none"><table class="tbl" id="ordTbl"><thead><tr>
       <th style="width:34%">Артикул (кампания)</th><th style="width:42%">Предмет</th><th style="width:20%">Расход, ₽</th><th></th>
     </tr></thead><tbody></tbody></table></div>
@@ -137,45 +137,15 @@ async function loadFromWB(){
   const end=`${y}-${pad(m)}-${pad(endD)}`;
   btn.disabled=true;
   try{
-    /* 1 — ID кампаний через /promotion/count */
-    st.textContent='Загружаю список кампаний…';
-    const cnt=await getJson(proxy,token,`${ADV}/adv/v1/promotion/count`);
-    const seen=new Set(),ids=[];
-    for(const g of(cnt.adverts||[])){
-      for(const a of(g.advert_list||[])){if(!seen.has(a.advertId)){seen.add(a.advertId);ids.push(a.advertId);}}
-    }
-    if(!ids.length) throw new Error('Кампаний не найдено (проверьте токен — нужна категория Продвижение)');
-
-    /* 1b — детали кампаний (name = артикул) пачками по 50 */
-    st.textContent=`Детали ${ids.length} кампаний…`;
-    const campMap=new Map();
-    for(let i=0;i<ids.length;i+=50){
-      await delay(300);
-      try{
-        const d=await getJson(proxy,token,`${ADV}/api/advert/v2/adverts?ids=`+ids.slice(i,i+50).join(','));
-        const arr=d.adverts||(Array.isArray(d)?d:[]);
-        arr.forEach(c=>{const name=((c.settings||{}).name||'#'+(c.id||c.advertId)).trim();campMap.set(c.id||c.advertId,name);});
-      }catch(e){console.warn('adverts batch: '+e.message);}
-    }
-    if(!campMap.size) ids.forEach(id=>campMap.set(id,'#'+id));
-
-    /* 2 — расходы: fullstats пачками по 50, суммируем days[].sum */
-    st.textContent=`Загружаю расходы…`;
+    /* 1 — история затрат на рекламу: один запрос вместо трёх */
+    st.textContent='Загружаю историю затрат на рекламу…';
+    const upd=await getJson(proxy,token,`${ADV}/adv/v1/upd?from=${start}&to=${end}`);
     const spendByArt=new Map();
-    for(let i=0;i<ids.length;i+=50){
-      await delay(500);
-      const batch=ids.slice(i,i+50);
-      st.textContent=`Расходы: ${Math.min(i+50,ids.length)}/${ids.length} кампаний…`;
-      try{
-        const sd=await getJson(proxy,token,
-          `${ADV}/adv/v3/fullstats?ids=${batch.join(',')}&beginDate=${start}&endDate=${end}`);
-        for(const s of(Array.isArray(sd)?sd:(sd.data||[]))){
-          let sp=0;for(const d of(s.days||[]))sp+=d.sum||0;
-          const art=campMap.get(s.advertId||s.id)||String(s.advertId||s.id);
-          spendByArt.set(art,(spendByArt.get(art)||0)+Math.abs(sp));
-        }
-      }catch(e){console.warn('fullstats batch: '+e.message);}
-    }
+    (Array.isArray(upd)?upd:[]).forEach(r=>{
+      const art=(r.campName||'').trim();
+      if(!art)return;
+      spendByArt.set(art,(spendByArt.get(art)||0)+Math.abs(num(r.updSum)));
+    });
     if(!spendByArt.size||[...spendByArt.values()].every(v=>v===0))
       throw new Error('Расходов на рекламу за месяц не найдено');
 
@@ -242,7 +212,7 @@ async function loadFromWB(){
       if(w.factor<0.999)transit.push(per+': '+w.overD+'/'+w.totalD+' дн = '+Math.round(w.factor*100)+'% от '+fmt(w.rawSum,0));
     });
     const tNote=transit.length?' Переходные: '+transit.join('; ')+'.':'';
-    st.textContent=`Готово: ${spendByArt.size} артикулов, ${ids.length} кампаний, ${weeks.length} отчётов.${tNote}`;
+    st.textContent=`Готово: ${spendByArt.size} артикулов, ${weeks.length} отчётов.${tNote}`;
     run();
   }catch(e){st.className='status err';st.textContent='Ошибка: '+e.message;}
   finally{btn.disabled=false;}
