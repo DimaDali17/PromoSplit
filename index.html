@@ -137,42 +137,44 @@ async function loadFromWB(){
   const end=`${y}-${pad(m)}-${pad(endD)}`;
   btn.disabled=true;
   try{
-    /* 1 — список рекламных кампаний */
-    st.textContent='Загружаю кампании…';
-    const campsRaw=await getJson(proxy,token,`${ADV}/adv/v1/promotion/adverts`);
-    let campsList=[];
-    if(Array.isArray(campsRaw)){
-      campsRaw.forEach(item=>{
-        if(item.advertId) campsList.push(item);
-        else if(item.advert_list) campsList.push(...item.advert_list);
-      });
-    } else if(campsRaw&&typeof campsRaw==='object'){
-      Object.values(campsRaw).forEach(v=>{if(Array.isArray(v))v.forEach(g=>{
-        if(g.advertId)campsList.push(g);else if(g.advert_list)campsList.push(...g.advert_list);
-      });});
+    /* 1 — ID кампаний через /promotion/count */
+    st.textContent='Загружаю список кампаний…';
+    const cnt=await getJson(proxy,token,`${ADV}/adv/v1/promotion/count`);
+    const seen=new Set(),ids=[];
+    for(const g of(cnt.adverts||[])){
+      for(const a of(g.advert_list||[])){if(!seen.has(a.advertId)){seen.add(a.advertId);ids.push(a.advertId);}}
     }
-    if(!campsList.length) throw new Error('Кампаний не найдено (проверьте токен — нужна категория Продвижение)');
-    const campMap=new Map();
-    campsList.forEach(c=>campMap.set(c.advertId,(c.name||String(c.advertId)).trim()));
+    if(!ids.length) throw new Error('Кампаний не найдено (проверьте токен — нужна категория Продвижение)');
 
-    /* 2 — расходы по каждой кампании за месяц */
-    st.textContent=`Загружаю расходы ${campsList.length} кампаний…`;
-    const spendByArt=new Map();
-    const ids=[...campMap.keys()];
-    let done=0;
-    for(const id of ids){
+    /* 1b — детали кампаний (name = артикул) пачками по 50 */
+    st.textContent=`Детали ${ids.length} кампаний…`;
+    const campMap=new Map();
+    for(let i=0;i<ids.length;i+=50){
+      await delay(300);
       try{
-        const stats=await getJson(proxy,token,
-          `${ADV}/adv/v3/fullstats?ids=${id}&beginDate=${start}&endDate=${end}`);
-        (Array.isArray(stats)?stats:[stats]).forEach(s=>{
-          if(!s||!s.advertId)return;
-          const art=campMap.get(s.advertId)||String(s.advertId);
-          spendByArt.set(art,(spendByArt.get(art)||0)+Math.abs(num(s.sum)));
-        });
-      }catch(e){console.warn('fullstats '+id+': '+e.message);}
-      done++;
-      if(done%10===0)st.textContent=`Расходы: ${done}/${ids.length} кампаний…`;
-      if(done<ids.length)await delay(350);
+        const d=await getJson(proxy,token,`${ADV}/api/advert/v2/adverts?ids=`+ids.slice(i,i+50).join(','));
+        const arr=d.adverts||(Array.isArray(d)?d:[]);
+        arr.forEach(c=>{const name=((c.settings||{}).name||'#'+(c.id||c.advertId)).trim();campMap.set(c.id||c.advertId,name);});
+      }catch(e){console.warn('adverts batch: '+e.message);}
+    }
+    if(!campMap.size) ids.forEach(id=>campMap.set(id,'#'+id));
+
+    /* 2 — расходы: fullstats пачками по 50, суммируем days[].sum */
+    st.textContent=`Загружаю расходы…`;
+    const spendByArt=new Map();
+    for(let i=0;i<ids.length;i+=50){
+      await delay(500);
+      const batch=ids.slice(i,i+50);
+      st.textContent=`Расходы: ${Math.min(i+50,ids.length)}/${ids.length} кампаний…`;
+      try{
+        const sd=await getJson(proxy,token,
+          `${ADV}/adv/v3/fullstats?ids=${batch.join(',')}&beginDate=${start}&endDate=${end}`);
+        for(const s of(Array.isArray(sd)?sd:(sd.data||[]))){
+          let sp=0;for(const d of(s.days||[]))sp+=d.sum||0;
+          const art=campMap.get(s.advertId||s.id)||String(s.advertId||s.id);
+          spendByArt.set(art,(spendByArt.get(art)||0)+Math.abs(sp));
+        }
+      }catch(e){console.warn('fullstats batch: '+e.message);}
     }
     if(!spendByArt.size||[...spendByArt.values()].every(v=>v===0))
       throw new Error('Расходов на рекламу за месяц не найдено');
@@ -224,7 +226,7 @@ async function loadFromWB(){
       const per=(String(w.from).slice(8,10)+'.'+String(w.from).slice(5,7))+'–'+(String(w.to).slice(8,10)+'.'+String(w.to).slice(5,7));
       addWk(dateStr,per,Math.round(w.sum));
     });
-    st.textContent=`Готово: ${spendByArt.size} артикулов, ${campsList.length} кампаний, ${weeks.length} отчётов.`;
+    st.textContent=`Готово: ${spendByArt.size} артикулов, ${ids.length} кампаний, ${weeks.length} отчётов.`;
     run();
   }catch(e){st.className='status err';st.textContent='Ошибка: '+e.message;}
   finally{btn.disabled=false;}
