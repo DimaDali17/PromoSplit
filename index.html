@@ -46,6 +46,10 @@ table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
       <div class="field" style="grid-column:1/-1"><label class="lab">URL прокси (Cloudflare Worker)</label><input id="proxy" class="mono" value="https://effinance.ooo6311ooo.workers.dev" placeholder="https://...workers.dev"></div>
       <div class="field" style="grid-column:1/-1"><label class="lab">API токен WB (Продвижение + Статистика)</label><input id="token" type="password" placeholder="вставьте токен"></div>
       <div class="field"><label class="lab">Месяц</label><input id="month" type="month" min="2026-01" value="2026-05"></div>
+      <div class="field" style="grid-column:1/-1"><label class="lab">Справочник артикулов (Google Sheet CSV)</label>
+        <input id="sheetUrl" class="mono" value="https://docs.google.com/spreadsheets/d/1rGjangN77xW_BTrY3GOUsc91xd0FghgE6fRzt4V__bc/gviz/tq?tqx=out:csv&gid=1840530356" placeholder="URL gviz/tq?tqx=out:csv">
+        <small>Лист «артикулы»: B=Предмет, C=Артикул поставщика (ключ), D=Артикул.Глубина. Сцепка = Предмет + (Глубина || Артикул), без разделителя.</small>
+      </div>
     </div>
     <button class="run alt" id="loadBtn" onclick="loadFromWB()">Загрузить из WB</button>
     <div class="status" id="apiStatus"></div>
@@ -104,6 +108,11 @@ const PROMO_RE=/продвижени|wb\s*продвиж|promotion/i;
 function isPromo(r){return[r.supplier_oper_name,r.bonus_type_name,r.doc_type_name].some(f=>PROMO_RE.test(f||''));}
 const WB="https://statistics-api.wildberries.ru";
 const ADV="https://advert-api.wildberries.ru";
+let artMap=new Map();
+function parseCSVLine(line){const r=[];let c='',q=false;for(const ch of line){if(ch==='"')q=!q;else if(ch===','&&!q){r.push(c);c='';}else if(ch!=='\r')c+=ch;}r.push(c);return r;}
+function loadArticleCSV(text){const m=new Map(),lines=text.split('\n');for(let i=1;i<lines.length;i++){const r=parseCSVLine(lines[i]);if(r.length<3)continue;const pred=(r[1]||'').trim(),artC=(r[2]||'').trim(),glub=(r[3]||'').trim();if(artC)m.set(artC,{predmet:pred,glubina:glub});}return m;}
+function artLookup(sku){const a=artMap.get(sku);return a||{predmet:'',glubina:''};}
+function buildKey(sku,subj){const a=artLookup(sku);const pred=a.predmet||subj;return pred+(a.glubina||'');}
 const ordBody=document.querySelector('#ordTbl tbody');
 const wkBody=document.querySelector('#wkTbl tbody');
 function addOrd(sku='',subj='',val=''){const tr=document.createElement('tr');tr.innerHTML=`<td><input class="mono" value="${sku}" placeholder="Pantal.SK.01"></td><td><input value="${subj}" placeholder="Футболки"></td><td><input class="mono" inputmode="numeric" value="${val}" placeholder="5000"></td><td class="del"><button class="xbtn" onclick="this.closest('tr').remove()">×</button></td>`;ordBody.appendChild(tr);}
@@ -137,6 +146,15 @@ async function loadFromWB(){
   const end=`${y}-${pad(m)}-${pad(endD)}`;
   btn.disabled=true;
   try{
+    /* 0 — справочник артикулов из Google Sheet */
+    const sheetUrl=document.getElementById('sheetUrl').value.trim();
+    if(sheetUrl){
+      st.textContent='Загружаю справочник артикулов…';
+      try{const csv=await fetch(sheetUrl).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text();});
+        artMap=loadArticleCSV(csv);st.textContent=`Справочник: ${artMap.size} артикулов.`;
+      }catch(e){console.warn('Sheet: '+e.message);st.textContent='Справочник не загружен ('+e.message+'), продолжаю…';await delay(800);}
+    }
+
     /* 1 — история затрат на рекламу: один запрос вместо трёх */
     st.textContent='Загружаю историю затрат на рекламу…';
     const upd=await getJson(proxy,token,`${ADV}/adv/v1/upd?from=${start}&to=${end}`);
@@ -202,7 +220,7 @@ async function loadFromWB(){
     /* 5 — заполняем таблицы */
     ordBody.innerHTML='';wkBody.innerHTML='';
     [...spendByArt.entries()].filter(([_,v])=>v>0).sort((a,b)=>b[1]-a[1])
-      .forEach(([art,spend])=>addOrd(art,subjMap.get(art)||'',Math.round(spend)));
+      .forEach(([art,spend])=>addOrd(art,artLookup(art).predmet||subjMap.get(art)||'',Math.round(spend)));
     const transit=[];
     weeks.forEach(w=>{
       const createISO=String(w.create).slice(0,7);
@@ -253,7 +271,7 @@ function run(){
     for(let k=0;k<order.length&&left>0;k++){floors[order[k].idx]++;left--;}
     const finals=floors.map(u=>u/step);
     top.forEach((x,idx)=>rows.push({date:w.date,period:w.period,subject:x.subject,sku:x.sku,
-      key:x.subject+';'+x.sku,what:C_WHAT,group:C_GROUP,spec:C_SPEC,sum:finals[idx]}));
+      key:buildKey(x.sku,x.subject),what:C_WHAT,group:C_GROUP,spec:C_SPEC,sum:finals[idx]}));
   });
   HEADER=incPeriod
     ?['Дата','Период отчёта','Предмет','Артикул продавца','Предмет;Артикул продавца','Что','Что (группа)','Конкретнее','Сумма']
