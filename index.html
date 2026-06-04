@@ -190,12 +190,14 @@ async function loadFromWB(){
       });
     }catch(e){console.warn('orders(subject): '+e.message);}
 
-    /* 4 — финансовый отчёт, удержания «WB Продвижение» */
+    /* 4 — финансовый отчёт ±10 дней, чтобы поймать переходные недели */
     st.textContent='Загружаю финансовый отчёт…';
+    const wide0=new Date(y,m-1,-9).toISOString().slice(0,10);
+    const wide1=new Date(y,m,10).toISOString().slice(0,10);
     let rrd=0,all=[],guard=0;
     while(guard++<50){
       const batch=await getJson(proxy,token,
-        `${WB}/api/v5/supplier/reportDetailByPeriod?dateFrom=${start}T00:00:00Z&dateTo=${end}T23:59:59Z&rrdid=${rrd}&limit=100000&period=weekly`);
+        `${WB}/api/v5/supplier/reportDetailByPeriod?dateFrom=${wide0}T00:00:00Z&dateTo=${wide1}T23:59:59Z&rrdid=${rrd}&limit=100000&period=weekly`);
       if(!Array.isArray(batch)||!batch.length)break;
       all=all.concat(batch);
       const last=batch[batch.length-1];
@@ -209,7 +211,18 @@ async function loadFromWB(){
       const e=reps.get(id)||{id,create:r.create_dt,from:r.date_from,to:r.date_to,sum:0};
       e.sum+=Math.abs(num(r.deduction));reps.set(id,e);
     });
-    const weeks=[...reps.values()].filter(w=>w.sum>0).sort((a,b)=>new Date(a.create)-new Date(b.create));
+    /* пропорция по дням: переходной отчёт 28.03–03.04 при анализе апреля → 3/7 суммы */
+    const msS=new Date(start+'T00:00:00').getTime(),msE=new Date(end+'T00:00:00').getTime(),DAY=864e5;
+    const weeks=[...reps.values()].filter(w=>w.sum>0).map(w=>{
+      const rf=new Date(String(w.from).slice(0,10)+'T00:00:00').getTime();
+      const rt=new Date(String(w.to).slice(0,10)+'T00:00:00').getTime();
+      const totalD=Math.round((rt-rf)/DAY)+1;
+      const oA=Math.max(rf,msS),oB=Math.min(rt,msE);
+      const overD=oB>=oA?Math.round((oB-oA)/DAY)+1:0;
+      if(overD<=0)return null;
+      const factor=overD/totalD;
+      return{...w,rawSum:w.sum,sum:w.sum*factor,factor,overD,totalD};
+    }).filter(Boolean).sort((a,b)=>new Date(a.create)-new Date(b.create));
     if(!weeks.length){
       const ops=new Set(),bns=new Set(),docs=new Set();
       all.filter(r=>Math.abs(num(r.deduction))>0).forEach(r=>{ops.add(r.supplier_oper_name||'');bns.add(r.bonus_type_name||'');docs.add(r.doc_type_name||'');});
@@ -220,13 +233,16 @@ async function loadFromWB(){
     ordBody.innerHTML='';wkBody.innerHTML='';
     [...spendByArt.entries()].filter(([_,v])=>v>0).sort((a,b)=>b[1]-a[1])
       .forEach(([art,spend])=>addOrd(art,subjMap.get(art)||'',Math.round(spend)));
+    const transit=[];
     weeks.forEach(w=>{
       const createISO=String(w.create).slice(0,7);
       const dateStr=(createISO!==month)?pad(endD)+'.'+pad(m)+'.'+y:ddmmyyyy(w.create);
       const per=(String(w.from).slice(8,10)+'.'+String(w.from).slice(5,7))+'–'+(String(w.to).slice(8,10)+'.'+String(w.to).slice(5,7));
       addWk(dateStr,per,Math.round(w.sum));
+      if(w.factor<0.999)transit.push(per+': '+w.overD+'/'+w.totalD+' дн = '+Math.round(w.factor*100)+'% от '+fmt(w.rawSum,0));
     });
-    st.textContent=`Готово: ${spendByArt.size} артикулов, ${ids.length} кампаний, ${weeks.length} отчётов.`;
+    const tNote=transit.length?' Переходные: '+transit.join('; ')+'.':'';
+    st.textContent=`Готово: ${spendByArt.size} артикулов, ${ids.length} кампаний, ${weeks.length} отчётов.${tNote}`;
     run();
   }catch(e){st.className='status err';st.textContent='Ошибка: '+e.message;}
   finally{btn.disabled=false;}
