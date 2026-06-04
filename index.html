@@ -110,7 +110,25 @@ const WB="https://statistics-api.wildberries.ru";
 const ADV="https://advert-api.wildberries.ru";
 let artMap=new Map();
 function parseCSVLine(line){const r=[];let c='',q=false;for(const ch of line){if(ch==='"')q=!q;else if(ch===','&&!q){r.push(c);c='';}else if(ch!=='\r')c+=ch;}r.push(c);return r;}
-function loadArticleCSV(text){const m=new Map(),lines=text.split('\n');for(let i=1;i<lines.length;i++){const r=parseCSVLine(lines[i]);if(r.length<3)continue;const pred=(r[1]||'').trim(),artC=(r[2]||'').trim(),glub=(r[3]||'').trim();if(artC)m.set(artC,{predmet:pred,glubina:glub});}return m;}
+function loadArticleCSV(text){
+  const m=new Map(),lines=text.split('\n');if(!lines.length)return m;
+  const hdr=parseCSVLine(lines[0]).map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());
+  const iP=hdr.findIndex(h=>/предмет/.test(h));
+  const iC=hdr.findIndex(h=>/артикул\s*пост|артикул поставщ/i.test(h));
+  const iD=hdr.findIndex(h=>/глубин/i.test(h));
+  console.log('Sheet headers:',hdr,'→ Предмет='+iP+', Арт.пост='+iC+', Глубина='+iD);
+  if(iC<0){console.warn('Колонка «Артикул поставщика» не найдена в заголовках:',hdr);return m;}
+  let withG=0;
+  for(let i=1;i<lines.length;i++){
+    const r=parseCSVLine(lines[i]);
+    const pred=iP>=0?(r[iP]||'').trim().replace(/^"|"$/g,''):'';
+    const artC=(r[iC]||'').trim().replace(/^"|"$/g,'');
+    const glub=iD>=0?(r[iD]||'').trim().replace(/^"|"$/g,''):'';
+    if(artC){m.set(artC,{predmet:pred,glubina:glub});if(glub)withG++;}
+  }
+  console.log(`Sheet parsed: ${m.size} артикулов, Глубина заполнена у ${withG}`);
+  return m;
+}
 function artLookup(sku){const a=artMap.get(sku);return a||{predmet:'',glubina:''};}
 function buildKey(sku,subj){const a=artLookup(sku);const pred=a.predmet||subj;return pred+(a.glubina||'');}
 const ordBody=document.querySelector('#ordTbl tbody');
@@ -151,7 +169,9 @@ async function loadFromWB(){
     if(sheetUrl){
       st.textContent='Загружаю справочник артикулов…';
       try{const csv=await fetch(sheetUrl).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text();});
-        artMap=loadArticleCSV(csv);st.textContent=`Справочник: ${artMap.size} артикулов.`;
+        artMap=loadArticleCSV(csv);
+        const wG=[...artMap.values()].filter(a=>a.glubina).length;
+        st.textContent=`Справочник: ${artMap.size} артикулов, Глубина у ${wG}.`;
       }catch(e){console.warn('Sheet: '+e.message);st.textContent='Справочник не загружен ('+e.message+'), продолжаю…';await delay(800);}
     }
 
