@@ -103,16 +103,17 @@ table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
 <script>
 const C_WHAT="Маркетинг",C_GROUP="Реклама",C_SPEC="реклама WB";
 const SHEET_URL="https://docs.google.com/spreadsheets/d/1rGjangN77xW_BTrY3GOUsc91xd0FghgE6fRzt4V__bc/gviz/tq?tqx=out:csv&gid=1840530356";
-/* Пер-кабинетные исключения категоризации: если match совпал (по артикулу ИЛИ предмету),
-   предмет/артикул заменяются на указанные. Ключ — имя кабинета (api1=EF, api2=EZFR). */
+/* Пер-кабинетные исключения категоризации: точное совпадение артикула (кампании).
+   Ключ — имя кабинета (api1=EF, api2=EZFR). Совпадает ТОЛЬКО артикул, равный when. */
 const OVERRIDES={
   api2:[ // EZFR
-    {match:/парео|pareo/i, subject:'Туники', sku:'Pareo.EFV.beige'}
+    {when:'Парео', subject:'Туники', sku:'Pareo.EFV.beige'}
   ]
 };
 function applyOverride(sku,subject){
   const rules=OVERRIDES[segVal('segCab')]||[];
-  for(const r of rules){if(r.match.test(sku)||r.match.test(subject))return{sku:r.sku,subject:r.subject};}
+  const key=String(sku).trim().toLowerCase();
+  for(const r of rules){if(key===r.when.toLowerCase())return{sku:r.sku,subject:r.subject};}
   return{sku,subject};
 }
 const PROMO_RE=/продвижени|wb\s*продвиж|promotion/i;
