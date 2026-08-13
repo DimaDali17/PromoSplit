@@ -41,7 +41,7 @@ table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
   </div>
   <!-- 0. API -->
   <div class="card">
-    <div class="sec-title"><span class="sec-num">0</span><h2>Загрузка из WB</h2><span class="hint">или заполните вручную ниже</span></div>
+    <div class="sec-title"><span class="sec-num">0</span><h2>Загрузка из WB</h2></div>
     <div class="grid">
       <div class="field" style="grid-column:1/-1"><label class="lab">URL прокси (Cloudflare Worker)</label><input id="proxy" class="mono" value="https://effinance.ooo6311ooo.workers.dev" placeholder="https://...workers.dev"></div>
       <div class="field" style="grid-column:1/-1"><label class="lab">Пароль доступа (X-Gate-Pass)</label><input id="gate" type="password" placeholder="пароль воркера"></div>
@@ -103,6 +103,18 @@ table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
 <script>
 const C_WHAT="Маркетинг",C_GROUP="Реклама",C_SPEC="реклама WB";
 const SHEET_URL="https://docs.google.com/spreadsheets/d/1rGjangN77xW_BTrY3GOUsc91xd0FghgE6fRzt4V__bc/gviz/tq?tqx=out:csv&gid=1840530356";
+/* Пер-кабинетные исключения категоризации: если match совпал (по артикулу ИЛИ предмету),
+   предмет/артикул заменяются на указанные. Ключ — имя кабинета (api1=EF, api2=EZFR). */
+const OVERRIDES={
+  api2:[ // EZFR
+    {match:/парео|pareo/i, subject:'Туники', sku:'Pareo.EFV.beige'}
+  ]
+};
+function applyOverride(sku,subject){
+  const rules=OVERRIDES[segVal('segCab')]||[];
+  for(const r of rules){if(r.match.test(sku)||r.match.test(subject))return{sku:r.sku,subject:r.subject};}
+  return{sku,subject};
+}
 const PROMO_RE=/продвижени|wb\s*продвиж|promotion/i;
 function isPromo(r){return[r.supplier_oper_name,r.bonus_type_name,r.doc_type_name].some(f=>PROMO_RE.test(f||''));}
 const WB="https://statistics-api.wildberries.ru";
@@ -153,10 +165,22 @@ function proxyHeaders(withWB){
   }
   return h;
 }
-async function getJson(proxy,wbUrl){
-  const r=await fetch(proxy+'/?url='+encodeURIComponent(wbUrl),{headers:proxyHeaders(true)});
-  const t=await r.text();if(!r.ok)throw new Error('HTTP '+r.status+' · '+t.slice(0,200));
-  try{return JSON.parse(t);}catch(e){throw new Error('Не JSON: '+t.slice(0,200));}
+async function getJson(proxy,wbUrl,tries=3){
+  let lastErr;
+  for(let attempt=1;attempt<=tries;attempt++){
+    try{
+      const r=await fetch(proxy+'/?url='+encodeURIComponent(wbUrl),{headers:proxyHeaders(true)});
+      const t=await r.text();                       // может оборваться при reset → бросит → ретрай
+      if(!r.ok){const err=new Error('HTTP '+r.status+' · '+t.slice(0,200));err.noRetry=true;throw err;}
+      try{return JSON.parse(t);}
+      catch(_){throw new Error('Не JSON (оборван ответ? '+t.length+' симв., хвост: …'+t.slice(-100)+')');}
+    }catch(e){
+      lastErr=e;
+      if(e.noRetry||attempt>=tries)throw e;
+      await delay(600*attempt);                     // 0.6с, 1.2с — пауза перед повтором
+    }
+  }
+  throw lastErr;
 }
 /* ═══ API ═══ */
 async function loadFromWB(){
@@ -272,8 +296,9 @@ function run(){
   const map=new Map();
   [...ordBody.querySelectorAll('tr')].forEach(tr=>{
     const i=tr.querySelectorAll('input');
-    const sku=i[0].value.trim(),subj=i[1].value.trim(),val=num(i[2].value);
+    let sku=i[0].value.trim(),subj=i[1].value.trim();const val=num(i[2].value);
     if(!sku||val<=0)return;
+    const ov=applyOverride(sku,subj);sku=ov.sku;subj=ov.subject;
     if(map.has(sku)){const o=map.get(sku);o.val+=val;if(!o.subject)o.subject=subj;}
     else map.set(sku,{sku,subject:subj,val});
   });
