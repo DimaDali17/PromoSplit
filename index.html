@@ -48,11 +48,6 @@ table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
       <div class="field"><label class="lab">Кабинет</label>
         <div class="seg" id="segCab"><button class="on" data-v="api1" onclick="seg('segCab',this)">EF</button><button data-v="api2" onclick="seg('segCab',this)">EZFR</button></div></div>
       <div class="field"><label class="lab">Месяц</label><input id="month" type="month" min="2026-01" value="2026-05"></div>
-      <div class="field" style="grid-column:1/-1"><label class="lab">API токен WB (запасной путь, если не через кабинет)</label><input id="token" type="password" placeholder="необязательно"></div>
-      <div class="field" style="grid-column:1/-1"><label class="lab">Справочник артикулов (Google Sheet CSV)</label>
-        <input id="sheetUrl" class="mono" value="https://docs.google.com/spreadsheets/d/1rGjangN77xW_BTrY3GOUsc91xd0FghgE6fRzt4V__bc/gviz/tq?tqx=out:csv&gid=1840530356" placeholder="URL gviz/tq?tqx=out:csv">
-        <small>Лист «артикулы»: B=Предмет, C=Артикул поставщика (ключ), D=Артикул.Глубина. Сцепка = Предмет + (Глубина || Артикул), без разделителя.</small>
-      </div>
     </div>
     <button class="run alt" id="loadBtn" onclick="loadFromWB()">Загрузить из WB</button>
     <div class="status" id="apiStatus"></div>
@@ -107,6 +102,7 @@ table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
 </div>
 <script>
 const C_WHAT="Маркетинг",C_GROUP="Реклама",C_SPEC="реклама WB";
+const SHEET_URL="https://docs.google.com/spreadsheets/d/1rGjangN77xW_BTrY3GOUsc91xd0FghgE6fRzt4V__bc/gviz/tq?tqx=out:csv&gid=1840530356";
 const PROMO_RE=/продвижени|wb\s*продвиж|promotion/i;
 function isPromo(r){return[r.supplier_oper_name,r.bonus_type_name,r.doc_type_name].some(f=>PROMO_RE.test(f||''));}
 const WB="https://statistics-api.wildberries.ru";
@@ -153,9 +149,7 @@ function proxyHeaders(withWB){
   const h={'X-Gate-Pass':gateVal()};
   if(withWB){
     const cab=segVal('segCab');           // 'api1' | 'api2'
-    const token=document.getElementById('token').value.trim();
     if(cab)h['X-WB-Key']=cab;
-    else if(token)h['X-WB-Token']=token;
   }
   return h;
 }
@@ -181,7 +175,7 @@ async function loadFromWB(){
   btn.disabled=true;
   try{
     /* 0 — справочник артикулов из Google Sheet (только гейт, без WB-кабинета) */
-    const sheetUrl=document.getElementById('sheetUrl').value.trim();
+    const sheetUrl=SHEET_URL;
     if(sheetUrl){
       st.textContent='Загружаю справочник артикулов…';
       try{const csv=await fetch(proxy+'/?url='+encodeURIComponent(sheetUrl),{headers:proxyHeaders(false)})
