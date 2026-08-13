@@ -44,8 +44,11 @@ table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
     <div class="sec-title"><span class="sec-num">0</span><h2>Загрузка из WB</h2><span class="hint">или заполните вручную ниже</span></div>
     <div class="grid">
       <div class="field" style="grid-column:1/-1"><label class="lab">URL прокси (Cloudflare Worker)</label><input id="proxy" class="mono" value="https://effinance.ooo6311ooo.workers.dev" placeholder="https://...workers.dev"></div>
-      <div class="field" style="grid-column:1/-1"><label class="lab">API токен WB (Продвижение + Статистика)</label><input id="token" type="password" placeholder="вставьте токен"></div>
+      <div class="field" style="grid-column:1/-1"><label class="lab">Пароль доступа (X-Gate-Pass)</label><input id="gate" type="password" placeholder="пароль воркера"></div>
+      <div class="field"><label class="lab">Кабинет</label>
+        <div class="seg" id="segCab"><button class="on" data-v="api1" onclick="seg('segCab',this)">EF</button><button data-v="api2" onclick="seg('segCab',this)">EZFR</button></div></div>
       <div class="field"><label class="lab">Месяц</label><input id="month" type="month" min="2026-01" value="2026-05"></div>
+      <div class="field" style="grid-column:1/-1"><label class="lab">API токен WB (запасной путь, если не через кабинет)</label><input id="token" type="password" placeholder="необязательно"></div>
       <div class="field" style="grid-column:1/-1"><label class="lab">Справочник артикулов (Google Sheet CSV)</label>
         <input id="sheetUrl" class="mono" value="https://docs.google.com/spreadsheets/d/1rGjangN77xW_BTrY3GOUsc91xd0FghgE6fRzt4V__bc/gviz/tq?tqx=out:csv&gid=1840530356" placeholder="URL gviz/tq?tqx=out:csv">
         <small>Лист «артикулы»: B=Предмет, C=Артикул поставщика (ключ), D=Артикул.Глубина. Сцепка = Предмет + (Глубина || Артикул), без разделителя.</small>
@@ -144,19 +147,32 @@ function fmt(n,dec){return n.toLocaleString('ru-RU',{minimumFractionDigits:dec,m
 function pad(n){return String(n).padStart(2,'0');}
 function ddmmyyyy(iso){const d=new Date(iso);if(isNaN(d))return String(iso||'');return pad(d.getDate())+'.'+pad(d.getMonth()+1)+'.'+d.getFullYear();}
 function delay(ms){return new Promise(r=>setTimeout(r,ms));}
-async function getJson(proxy,token,wbUrl){
-  const r=await fetch(proxy+'/?url='+encodeURIComponent(wbUrl),{headers:token?{'X-WB-Token':token}:{}});
+/* ═══ общие заголовки к прокси ═══ */
+function gateVal(){return document.getElementById('gate').value.trim();}
+function proxyHeaders(withWB){
+  const h={'X-Gate-Pass':gateVal()};
+  if(withWB){
+    const cab=segVal('segCab');           // 'api1' | 'api2'
+    const token=document.getElementById('token').value.trim();
+    if(cab)h['X-WB-Key']=cab;
+    else if(token)h['X-WB-Token']=token;
+  }
+  return h;
+}
+async function getJson(proxy,wbUrl){
+  const r=await fetch(proxy+'/?url='+encodeURIComponent(wbUrl),{headers:proxyHeaders(true)});
   const t=await r.text();if(!r.ok)throw new Error('HTTP '+r.status+' · '+t.slice(0,200));
   try{return JSON.parse(t);}catch(e){throw new Error('Не JSON: '+t.slice(0,200));}
 }
 /* ═══ API ═══ */
 async function loadFromWB(){
   const proxy=document.getElementById('proxy').value.trim().replace(/\/+$/,'');
-  const token=document.getElementById('token').value.trim();
+  const gate=gateVal();
   const month=document.getElementById('month').value;
   const st=document.getElementById('apiStatus');st.className='status';
   const btn=document.getElementById('loadBtn');
   if(!proxy){st.className='status err';st.textContent='Укажите URL прокси';return;}
+  if(!gate){st.className='status err';st.textContent='Укажите пароль доступа';return;}
   if(!month){st.className='status err';st.textContent='Выберите месяц';return;}
   const [y,m]=month.split('-').map(Number);
   const start=`${y}-${pad(m)}-01`;
@@ -164,11 +180,12 @@ async function loadFromWB(){
   const end=`${y}-${pad(m)}-${pad(endD)}`;
   btn.disabled=true;
   try{
-    /* 0 — справочник артикулов из Google Sheet */
+    /* 0 — справочник артикулов из Google Sheet (только гейт, без WB-кабинета) */
     const sheetUrl=document.getElementById('sheetUrl').value.trim();
     if(sheetUrl){
       st.textContent='Загружаю справочник артикулов…';
-      try{const csv=await fetch(proxy+'/?url='+encodeURIComponent(sheetUrl)).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text();});
+      try{const csv=await fetch(proxy+'/?url='+encodeURIComponent(sheetUrl),{headers:proxyHeaders(false)})
+            .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text();});
         artMap=loadArticleCSV(csv);
         const wG=[...artMap.values()].filter(a=>a.glubina).length;
         st.textContent=`Справочник: ${artMap.size} артикулов, Глубина у ${wG}.`;
@@ -177,7 +194,7 @@ async function loadFromWB(){
 
     /* 1 — история затрат на рекламу: один запрос вместо трёх */
     st.textContent='Загружаю историю затрат на рекламу…';
-    const upd=await getJson(proxy,token,`${ADV}/adv/v1/upd?from=${start}&to=${end}`);
+    const upd=await getJson(proxy,`${ADV}/adv/v1/upd?from=${start}&to=${end}`);
     const spendByArt=new Map();
     (Array.isArray(upd)?upd:[]).forEach(r=>{
       const art=(r.campName||'').trim();
@@ -191,7 +208,7 @@ async function loadFromWB(){
     st.textContent='Загружаю заказы (для категорий)…';
     let subjMap=new Map();
     try{
-      const orders=await getJson(proxy,token,`${WB}/api/v1/supplier/orders?dateFrom=${start}T00:00:00Z&flag=0`);
+      const orders=await getJson(proxy,`${WB}/api/v1/supplier/orders?dateFrom=${start}T00:00:00Z&flag=0`);
       (orders||[]).forEach(o=>{
         const art=(o.supplierArticle||'').trim();
         if(art&&o.subject&&!subjMap.has(art))subjMap.set(art,o.subject);
@@ -204,7 +221,7 @@ async function loadFromWB(){
     const wide1=new Date(y,m,10).toISOString().slice(0,10);
     let rrd=0,all=[],guard=0;
     while(guard++<50){
-      const batch=await getJson(proxy,token,
+      const batch=await getJson(proxy,
         `${WB}/api/v5/supplier/reportDetailByPeriod?dateFrom=${wide0}T00:00:00Z&dateTo=${wide1}T23:59:59Z&rrdid=${rrd}&limit=100000&period=weekly`);
       if(!Array.isArray(batch)||!batch.length)break;
       all=all.concat(batch);
