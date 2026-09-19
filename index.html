@@ -171,17 +171,6 @@ async function getJson(proxy,wbUrl,tries=3){
   for(let attempt=1;attempt<=tries;attempt++){
     try{
       const r=await fetch(proxy+'/?url='+encodeURIComponent(wbUrl),{headers:proxyHeaders(true)});
-      /* WB statistics-api пускает ≈1 запрос в минуту на аккаунт (общий лимит на весь домен).
-         При 429 не считаем это ошибкой — ждём и повторяем. */
-      if(r.status===429){
-        if(attempt>=tries){
-          const e=new Error('WB: превышен лимит запросов (429). У статистики WB лимит ≈1 запрос в минуту на аккаунт — подождите минуту и повторите. Если повторяется на первом же запросе — этот же токен «Статистика» дёргает что-то ещё (другая вкладка, авто-выгрузка в Google Sheets, сторонний сервис).');
-          e.noRetry=true;throw e;
-        }
-        const ra=parseInt(r.headers.get('Retry-After'))||61;   // WB паузу обычно не присылает → ждём 61 с
-        await delay(ra*1000);
-        continue;                                              // повторяем тот же запрос
-      }
       const t=await r.text();                       // может оборваться при reset → бросит → ретрай
       if(!r.ok){const err=new Error('HTTP '+r.status+' · '+t.slice(0,200));err.noRetry=true;throw err;}
       try{return JSON.parse(t);}
@@ -222,7 +211,7 @@ async function loadFromWB(){
       }catch(e){console.warn('Sheet: '+e.message);st.textContent='Справочник не загружен ('+e.message+'), продолжаю…';await delay(800);}
     }
 
-    /* 1 — история затрат на рекламу: домен advert-api (СВОЙ лимит, не мешает статистике) */
+    /* 1 — история затрат на рекламу: один запрос вместо трёх */
     st.textContent='Загружаю историю затрат на рекламу…';
     const upd=await getJson(proxy,`${ADV}/adv/v1/upd?from=${start}&to=${end}`);
     const spendByArt=new Map();
@@ -234,16 +223,18 @@ async function loadFromWB(){
     if(!spendByArt.size||[...spendByArt.values()].every(v=>v===0))
       throw new Error('Расходов на рекламу за месяц не найдено');
 
-    /* 3 — запрос /orders УБРАН.
-       Он шёл к тому же домену statistics-api, что и главный отчёт ниже, и «съедал»
-       единственный доступный запрос в минуту — из-за чего reportDetailByPeriod
-       сразу же ловил 429. «Предмет» и так приходит из справочника Google Sheet,
-       поэтому отдельный запрос к WB не нужен. subjMap оставлен пустым для совместимости. */
+    /* 3 — заказы только для маппинга артикул→предмет */
+    st.textContent='Загружаю заказы (для категорий)…';
     let subjMap=new Map();
+    try{
+      const orders=await getJson(proxy,`${WB}/api/v1/supplier/orders?dateFrom=${start}T00:00:00Z&flag=0`);
+      (orders||[]).forEach(o=>{
+        const art=(o.supplierArticle||'').trim();
+        if(art&&o.subject&&!subjMap.has(art))subjMap.set(art,o.subject);
+      });
+    }catch(e){console.warn('orders(subject): '+e.message);}
 
-    /* 4 — финансовый отчёт ±10 дней, чтобы поймать переходные недели.
-       Теперь это ПЕРВЫЙ и обычно ЕДИНСТВЕННЫЙ запрос к statistics-api за загрузку —
-       он попадает в свежий лимит и проходит. */
+    /* 4 — финансовый отчёт ±10 дней, чтобы поймать переходные недели */
     st.textContent='Загружаю финансовый отчёт…';
     const wide0=new Date(y,m-1,-9).toISOString().slice(0,10);
     const wide1=new Date(y,m,10).toISOString().slice(0,10);
@@ -256,12 +247,6 @@ async function loadFromWB(){
       const last=batch[batch.length-1];
       if(!last||!last.rrd_id||last.rrd_id===rrd)break;
       rrd=last.rrd_id;if(batch.length<100000)break;
-      /* Отчёт не поместился в одну страницу. statistics-api пускает ≈1 запрос/мин,
-         поэтому перед следующей страницей выжидаем минуту — иначе гарантированный 429.
-         (getJson и сам переживёт 429, но так пользователь видит, почему пауза.) */
-      st.textContent=`Отчёт большой: получено ${all.length} строк. Пауза 60 c из-за лимита WB (≈1 запрос/мин)…`;
-      await delay(61000);
-      st.textContent='Догружаю следующую страницу отчёта…';
     }
     const reps=new Map();
     all.forEach(r=>{
