@@ -102,7 +102,13 @@ table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
 </div>
 <script>
 const C_WHAT="Маркетинг",C_GROUP="Реклама",C_SPEC="реклама WB";
-const SHEET_URL="https://docs.google.com/spreadsheets/d/1rGjangN77xW_BTrY3GOUsc91xd0FghgE6fRzt4V__bc/gviz/tq?tqx=out:csv&gid=1840530356";
+/* Справочники «глубины» по кабинетам (одинаковая структура, разные ИП):
+   api1 = EF, api2 = EZFR. Используются только для «глубины» в ключе «Предмет;Артикул».
+   Предмет берётся напрямую из ответа WB, справочник для него не нужен. */
+const SHEET_URLS={
+  api1:"https://docs.google.com/spreadsheets/d/1rGjangN77xW_BTrY3GOUsc91xd0FghgE6fRzt4V__bc/gviz/tq?tqx=out:csv&gid=1840530356",
+  api2:"https://docs.google.com/spreadsheets/d/e/2PACX-1vS4upRNoJpKgaEClkUgzfEBePMDEIYNBNHGO-iV5wqa0lzZPh1wLKuRw-fC2XDyc-kixxFbq4nPbKh9/pub?gid=612792464&single=true&output=csv"
+};
 /* Пер-кабинетные исключения категоризации: точное совпадение артикула (кампании).
    Ключ — имя кабинета (api1=EF, api2=EZFR). Совпадает ТОЛЬКО артикул, равный when. */
 const OVERRIDES={
@@ -139,13 +145,13 @@ function loadArticleCSV(text){
     const pred=iP>=0?(r[iP]||'').trim().replace(/^"|"$/g,''):'';
     const artC=(r[iC]||'').trim().replace(/^"|"$/g,'');
     const glub=iD>=0?(r[iD]||'').trim().replace(/^"|"$/g,''):'';
-    if(artC){m.set(artC,{predmet:pred,glubina:glub});if(glub)withG++;}
+    if(artC){m.set(artC.toLowerCase(),{predmet:pred,glubina:glub});if(glub)withG++;}
   }
   console.log(`Sheet parsed: ${m.size} артикулов, Глубина заполнена у ${withG}`);
   return m;
 }
-function artLookup(sku){const a=artMap.get(sku);return a||{predmet:'',glubina:''};}
-function buildKey(sku,subj){const a=artLookup(sku);const pred=a.predmet||subj;return pred+(a.glubina||'');}
+function artLookup(sku){const a=artMap.get(String(sku).trim().toLowerCase());return a||{predmet:'',glubina:''};}
+function buildKey(sku,subj){const a=artLookup(sku);const pred=subj||a.predmet;return pred+(a.glubina||'');}
 const ordBody=document.querySelector('#ordTbl tbody');
 const wkBody=document.querySelector('#wkTbl tbody');
 function addOrd(sku='',subj='',val=''){const tr=document.createElement('tr');tr.innerHTML=`<td><input class="mono" value="${sku}" placeholder="Pantal.SK.01"></td><td><input value="${subj}" placeholder="Футболки"></td><td><input class="mono" inputmode="numeric" value="${val}" placeholder="5000"></td><td class="del"><button class="xbtn" onclick="this.closest('tr').remove()">×</button></td>`;ordBody.appendChild(tr);}
@@ -222,8 +228,8 @@ async function loadFromWB(){
   const end=`${y}-${pad(m)}-${pad(endD)}`;
   btn.disabled=true;
   try{
-    /* 0 — справочник артикулов из Google Sheet (только гейт, без WB-кабинета) */
-    const sheetUrl=SHEET_URL;
+    /* 0 — справочник «глубины» из Google Sheet по выбранному кабинету (только гейт, без WB-токена) */
+    const sheetUrl=SHEET_URLS[segVal('segCab')]||'';
     if(sheetUrl){
       st.textContent='Загружаю справочник артикулов…';
       try{const csv=await fetch(proxy+'/?url='+encodeURIComponent(sheetUrl),{headers:proxyHeaders(false)})
@@ -246,11 +252,9 @@ async function loadFromWB(){
     if(!spendByArt.size||[...spendByArt.values()].every(v=>v===0))
       throw new Error('Расходов на рекламу за месяц не найдено');
 
-    /* 3 — запрос /orders УБРАН.
-       Он шёл к тому же домену statistics-api, что и главный отчёт ниже, и «съедал»
-       единственный доступный запрос в минуту — из-за чего reportDetailByPeriod
-       сразу же ловил 429. «Предмет» и так приходит из справочника Google Sheet,
-       поэтому отдельный запрос к WB не нужен. subjMap оставлен пустым для совместимости. */
+    /* 3 — запрос /orders УБРАН (был на statistics-api, конфликтовал по лимиту).
+       Предмет теперь берём прямо из ответа финансового отчёта (vendorCode -> subjectName),
+       карту наполняем ниже. */
     let subjMap=new Map();
 
     /* 4 — финансовый отчёт реализации, НОВЫЙ метод WB:
@@ -287,6 +291,14 @@ async function loadFromWB(){
       const e=reps.get(id)||{id,create:r.createDate,from:r.dateFrom,to:r.dateTo,sum:0};
       e.sum+=Math.abs(num(r.deduction));reps.set(id,e);
     });
+    /* Предмет берём прямо из ответа WB: в строках продаж есть vendorCode (артикул продавца)
+       и subjectName (предмет). Строим карту артикул(нижний регистр) -> предмет.
+       Справочник для предмета больше не нужен. */
+    all.forEach(r=>{
+      const vc=(r.vendorCode||'').trim();
+      const sn=(r.subjectName||'').trim();
+      if(vc&&sn){const k=vc.toLowerCase();if(!subjMap.has(k))subjMap.set(k,sn);}
+    });
     /* пропорция по дням: переходной отчёт 28.03–03.04 при анализе апреля → 3/7 суммы */
     const msS=new Date(start+'T00:00:00').getTime(),msE=new Date(end+'T00:00:00').getTime(),DAY=864e5;
     const weeks=[...reps.values()].filter(w=>w.sum>0).map(w=>{
@@ -308,7 +320,7 @@ async function loadFromWB(){
     /* 5 — заполняем таблицы */
     ordBody.innerHTML='';wkBody.innerHTML='';
     [...spendByArt.entries()].filter(([_,v])=>v>0).sort((a,b)=>b[1]-a[1])
-      .forEach(([art,spend])=>addOrd(art,artLookup(art).predmet||subjMap.get(art)||'',Math.round(spend)));
+      .forEach(([art,spend])=>addOrd(art,subjMap.get(String(art).trim().toLowerCase())||'',Math.round(spend)));
     const transit=[];
     weeks.forEach(w=>{
       const createISO=String(w.create).slice(0,7);
