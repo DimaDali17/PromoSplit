@@ -62,7 +62,7 @@ table.res{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
   </div>
   <!-- 2. Weekly retentions -->
   <div class="card">
-    <div class="sec-title"><span class="sec-num">2</span><h2>Недельные удержания «WB Продвижение»</h2><span class="hint">reportDetailByPeriod</span></div>
+    <div class="sec-title"><span class="sec-num">2</span><h2>Недельные удержания «WB Продвижение»</h2><span class="hint">finance/v1/sales-reports/detailed</span></div>
     <div class="scroll" style="border:none"><table class="tbl" id="wkTbl"><thead><tr>
       <th style="width:24%">Дата</th><th style="width:34%">Период отчёта</th><th style="width:30%">Удержание, ₽</th><th></th>
     </tr></thead><tbody></tbody></table></div>
@@ -117,9 +117,12 @@ function applyOverride(sku,subject){
   return{sku,subject};
 }
 const PROMO_RE=/продвижени|wb\s*продвиж|promotion/i;
-function isPromo(r){return[r.supplier_oper_name,r.bonus_type_name,r.doc_type_name].some(f=>PROMO_RE.test(f||''));}
+/* Новый метод отдаёт поля в camelCase: sellerOperName / bonusTypeName / docTypeName.
+   Фильтр удержаний «WB Продвижение» — по тем же смыслам, что и раньше. */
+function isPromo(r){return[r.sellerOperName,r.bonusTypeName,r.docTypeName].some(f=>PROMO_RE.test(f||''));}
 const WB="https://statistics-api.wildberries.ru";
 const ADV="https://advert-api.wildberries.ru";
+const FIN="https://finance-api.wildberries.ru";   // новый хост финансовых отчётов
 let artMap=new Map();
 function parseCSVLine(line){const r=[];let c='',q=false;for(const ch of line){if(ch==='"')q=!q;else if(ch===','&&!q){r.push(c);c='';}else if(ch!=='\r')c+=ch;}r.push(c);return r;}
 function loadArticleCSV(text){
@@ -166,14 +169,34 @@ function proxyHeaders(withWB){
   }
   return h;
 }
-async function getJson(proxy,wbUrl,tries=3){
+/* getJson поддерживает и GET, и POST.
+   Если передан body (объект) — шлём POST с этим телом (нужно для нового финансового метода).
+   Возвращаем {status, data}: data===null при 204 «нет данных» (конец пагинации). */
+async function getJson(proxy,wbUrl,tries=3,body=null){
   let lastErr;
   for(let attempt=1;attempt<=tries;attempt++){
     try{
-      const r=await fetch(proxy+'/?url='+encodeURIComponent(wbUrl),{headers:proxyHeaders(true)});
+      const opt={headers:proxyHeaders(true)};
+      if(body!==null){
+        opt.method='POST';
+        opt.headers={...opt.headers,'Content-Type':'application/json'};
+        opt.body=JSON.stringify(body);
+      }
+      const r=await fetch(proxy+'/?url='+encodeURIComponent(wbUrl),opt);
+      /* WB лимит ≈1 запрос в минуту на аккаунт. При 429 не считаем ошибкой — ждём и повторяем. */
+      if(r.status===429){
+        if(attempt>=tries){
+          const e=new Error('WB: превышен лимит запросов (429). Лимит финансового отчёта ≈1 запрос в минуту на аккаунт — подождите минуту и повторите. Если повторяется на первом же запросе — этот токен «Финансы» дёргает что-то ещё (другая вкладка, авто-выгрузка, сторонний сервис).');
+          e.noRetry=true;throw e;
+        }
+        const ra=parseInt(r.headers.get('Retry-After'))||61;   // WB паузу обычно не присылает → ждём 61 с
+        await delay(ra*1000);
+        continue;                                              // повторяем тот же запрос
+      }
+      if(r.status===204)return{status:204,data:null};          // нет данных — конец пагинации
       const t=await r.text();                       // может оборваться при reset → бросит → ретрай
       if(!r.ok){const err=new Error('HTTP '+r.status+' · '+t.slice(0,200));err.noRetry=true;throw err;}
-      try{return JSON.parse(t);}
+      try{return{status:r.status,data:JSON.parse(t)};}
       catch(_){throw new Error('Не JSON (оборван ответ? '+t.length+' симв., хвост: …'+t.slice(-100)+')');}
     }catch(e){
       lastErr=e;
@@ -211,9 +234,9 @@ async function loadFromWB(){
       }catch(e){console.warn('Sheet: '+e.message);st.textContent='Справочник не загружен ('+e.message+'), продолжаю…';await delay(800);}
     }
 
-    /* 1 — история затрат на рекламу: один запрос вместо трёх */
+    /* 1 — история затрат на рекламу: домен advert-api (СВОЙ лимит, не мешает статистике) */
     st.textContent='Загружаю историю затрат на рекламу…';
-    const upd=await getJson(proxy,`${ADV}/adv/v1/upd?from=${start}&to=${end}`);
+    const upd=(await getJson(proxy,`${ADV}/adv/v1/upd?from=${start}&to=${end}`)).data;
     const spendByArt=new Map();
     (Array.isArray(upd)?upd:[]).forEach(r=>{
       const art=(r.campName||'').trim();
@@ -223,36 +246,45 @@ async function loadFromWB(){
     if(!spendByArt.size||[...spendByArt.values()].every(v=>v===0))
       throw new Error('Расходов на рекламу за месяц не найдено');
 
-    /* 3 — заказы только для маппинга артикул→предмет */
-    st.textContent='Загружаю заказы (для категорий)…';
+    /* 3 — запрос /orders УБРАН.
+       Он шёл к тому же домену statistics-api, что и главный отчёт ниже, и «съедал»
+       единственный доступный запрос в минуту — из-за чего reportDetailByPeriod
+       сразу же ловил 429. «Предмет» и так приходит из справочника Google Sheet,
+       поэтому отдельный запрос к WB не нужен. subjMap оставлен пустым для совместимости. */
     let subjMap=new Map();
-    try{
-      const orders=await getJson(proxy,`${WB}/api/v1/supplier/orders?dateFrom=${start}T00:00:00Z&flag=0`);
-      (orders||[]).forEach(o=>{
-        const art=(o.supplierArticle||'').trim();
-        if(art&&o.subject&&!subjMap.has(art))subjMap.set(art,o.subject);
-      });
-    }catch(e){console.warn('orders(subject): '+e.message);}
 
-    /* 4 — финансовый отчёт ±10 дней, чтобы поймать переходные недели */
+    /* 4 — финансовый отчёт реализации, НОВЫЙ метод WB:
+       POST https://finance-api.wildberries.ru/api/finance/v1/sales-reports/detailed
+       (старый GET /api/v5/supplier/reportDetailByPeriod на statistics-api отключён WB 15.07.2026).
+       Токен — категории «Финансы». Пагинация: старт rrdId=0, дальше берём rrdId
+       последней строки, повторяем пока не придёт 204. Суммы приходят строками (тип S).
+       Берём период ±10 дней вокруг месяца, чтобы поймать переходные недели. */
     st.textContent='Загружаю финансовый отчёт…';
     const wide0=new Date(y,m-1,-9).toISOString().slice(0,10);
     const wide1=new Date(y,m,10).toISOString().slice(0,10);
+    // просим только нужные поля — ответ легче и быстрее
+    const FIN_FIELDS=['reportId','createDate','dateFrom','dateTo','sellerOperName','bonusTypeName','docTypeName','deduction','rrdId'];
     let rrd=0,all=[],guard=0;
     while(guard++<50){
-      const batch=await getJson(proxy,
-        `${WB}/api/v5/supplier/reportDetailByPeriod?dateFrom=${wide0}T00:00:00Z&dateTo=${wide1}T23:59:59Z&rrdid=${rrd}&limit=100000&period=weekly`);
-      if(!Array.isArray(batch)||!batch.length)break;
-      all=all.concat(batch);
-      const last=batch[batch.length-1];
-      if(!last||!last.rrd_id||last.rrd_id===rrd)break;
-      rrd=last.rrd_id;if(batch.length<100000)break;
+      const {status,data}=await getJson(proxy,
+        `${FIN}/api/finance/v1/sales-reports/detailed`,3,
+        {dateFrom:`${wide0}T00:00:00`,dateTo:`${wide1}T23:59:59`,rrdId:rrd,limit:100000,fields:FIN_FIELDS});
+      if(status===204||!Array.isArray(data)||!data.length)break;   // 204 или пусто → конец
+      all=all.concat(data);
+      const last=data[data.length-1];
+      if(!last||!last.rrdId||last.rrdId===rrd)break;
+      rrd=last.rrdId;if(data.length<100000)break;
+      /* Отчёт не поместился в одну страницу. finance-api пускает ≈1 запрос/мин,
+         поэтому перед следующей страницей выжидаем минуту — иначе гарантированный 429. */
+      st.textContent=`Отчёт большой: получено ${all.length} строк. Пауза 60 c из-за лимита WB (≈1 запрос/мин)…`;
+      await delay(61000);
+      st.textContent='Догружаю следующую страницу отчёта…';
     }
     const reps=new Map();
     all.forEach(r=>{
       if(!isPromo(r))return;
-      const id=r.realizationreport_id;
-      const e=reps.get(id)||{id,create:r.create_dt,from:r.date_from,to:r.date_to,sum:0};
+      const id=r.reportId;
+      const e=reps.get(id)||{id,create:r.createDate,from:r.dateFrom,to:r.dateTo,sum:0};
       e.sum+=Math.abs(num(r.deduction));reps.set(id,e);
     });
     /* пропорция по дням: переходной отчёт 28.03–03.04 при анализе апреля → 3/7 суммы */
@@ -269,8 +301,8 @@ async function loadFromWB(){
     }).filter(Boolean).sort((a,b)=>new Date(a.create)-new Date(b.create));
     if(!weeks.length){
       const ops=new Set(),bns=new Set(),docs=new Set();
-      all.filter(r=>Math.abs(num(r.deduction))>0).forEach(r=>{ops.add(r.supplier_oper_name||'');bns.add(r.bonus_type_name||'');docs.add(r.doc_type_name||'');});
-      throw new Error('Удержаний «WB Продвижение» не найдено.\nСтрок: '+all.length+'. С deduction>0: '+all.filter(r=>Math.abs(num(r.deduction))>0).length+'.\nsupplier_oper_name: '+[...ops].join(' | ')+'\nbonus_type_name: '+[...bns].join(' | ')+'\ndoc_type_name: '+[...docs].join(' | '));
+      all.filter(r=>Math.abs(num(r.deduction))>0).forEach(r=>{ops.add(r.sellerOperName||'');bns.add(r.bonusTypeName||'');docs.add(r.docTypeName||'');});
+      throw new Error('Удержаний «WB Продвижение» не найдено.\nСтрок: '+all.length+'. С deduction>0: '+all.filter(r=>Math.abs(num(r.deduction))>0).length+'.\nsellerOperName: '+[...ops].join(' | ')+'\nbonusTypeName: '+[...bns].join(' | ')+'\ndocTypeName: '+[...docs].join(' | '));
     }
 
     /* 5 — заполняем таблицы */
