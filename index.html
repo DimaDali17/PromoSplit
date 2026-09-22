@@ -107,7 +107,7 @@ const C_WHAT="Маркетинг",C_GROUP="Реклама",C_SPEC="реклам�
    Предмет берётся напрямую из ответа WB, справочник для него не нужен. */
 const SHEET_URLS={
   api1:"https://docs.google.com/spreadsheets/d/1rGjangN77xW_BTrY3GOUsc91xd0FghgE6fRzt4V__bc/gviz/tq?tqx=out:csv&gid=1840530356",
-  api2:"https://docs.google.com/spreadsheets/d/e/2PACX-1vS4upRNoJpKgaEClkUgzfEBePMDEIYNBNHGO-iV5wqa0lzZPh1wLKuRw-fC2XDyc-kixxFbq4nPbKh9/pub?gid=612792464&single=true&output=csv"
+  api2:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQuVvUEHyqdVP2ZHULOoeNyKdJrnI5qHcp8EI9uEns-xFfRaH_OifbV4yZEqeS_1a7CBVKMQ2TYi9pp/pub?gid=1840530464&single=true&output=csv"
 };
 /* Пер-кабинетные исключения категоризации: точное совпадение артикула (кампании).
    Ключ — имя кабинета (api1=EF, api2=EZFR). Совпадает ТОЛЬКО артикул, равный when. */
@@ -121,6 +121,21 @@ function applyOverride(sku,subject){
   const key=String(sku).trim().toLowerCase();
   for(const r of rules){if(key===r.when.toLowerCase())return{sku:r.sku,subject:r.subject};}
   return{sku,subject};
+}
+/* Переименования: имя рекламной кампании -> реальный артикул продавца.
+   Обычно имя кампании = артикул, но иногда кампанию назвали иначе.
+   Ключ — имя кампании (как в рекламе), значение — артикул. Пополняй по мере надобности.
+   Сопоставление без учёта регистра. */
+const CAMPAIGN_TO_SKU={
+  'шорты (руч)':'TermShort.new.SK.black.01',
+  'аукцион кролики':'TermSocks.EF.Rab.01',
+  'аукцион кашемиры':'TermSocks.Kash.Assor.01',
+  'аукцион нумы':'TS21num1',
+  'аукцион аляска':'TermSocks.Al-ESS.black.01'
+};
+function campaignToSku(name){
+  const k=String(name||'').trim().toLowerCase();
+  return CAMPAIGN_TO_SKU[k]||name;
 }
 const PROMO_RE=/продвижени|wb\s*продвиж|promotion/i;
 /* Новый метод отдаёт поля в camelCase: sellerOperName / bonusTypeName / docTypeName.
@@ -151,7 +166,7 @@ function loadArticleCSV(text){
   return m;
 }
 function artLookup(sku){const a=artMap.get(String(sku).trim().toLowerCase());return a||{predmet:'',glubina:''};}
-function buildKey(sku,subj){const a=artLookup(sku);const pred=subj||a.predmet;return pred+(a.glubina||'');}
+function buildKey(sku,subj){const a=artLookup(sku);const pred=a.predmet||subj;return pred+(a.glubina||'');}
 const ordBody=document.querySelector('#ordTbl tbody');
 const wkBody=document.querySelector('#wkTbl tbody');
 function addOrd(sku='',subj='',val=''){const tr=document.createElement('tr');tr.innerHTML=`<td><input class="mono" value="${sku}" placeholder="Pantal.SK.01"></td><td><input value="${subj}" placeholder="Футболки"></td><td><input class="mono" inputmode="numeric" value="${val}" placeholder="5000"></td><td class="del"><button class="xbtn" onclick="this.closest('tr').remove()">×</button></td>`;ordBody.appendChild(tr);}
@@ -245,7 +260,7 @@ async function loadFromWB(){
     const upd=(await getJson(proxy,`${ADV}/adv/v1/upd?from=${start}&to=${end}`)).data;
     const spendByArt=new Map();
     (Array.isArray(upd)?upd:[]).forEach(r=>{
-      const art=(r.campName||'').trim();
+      const art=campaignToSku((r.campName||'').trim());   // имя кампании -> артикул (если переименовано)
       if(!art)return;
       spendByArt.set(art,(spendByArt.get(art)||0)+Math.abs(num(r.updSum)));
     });
@@ -253,9 +268,7 @@ async function loadFromWB(){
       throw new Error('Расходов на рекламу за месяц не найдено');
 
     /* 3 — запрос /orders УБРАН (был на statistics-api, конфликтовал по лимиту).
-       Предмет теперь берём прямо из ответа финансового отчёта (vendorCode -> subjectName),
-       карту наполняем ниже. */
-    let subjMap=new Map();
+       Предмет берём из справочника по кабинету (см. загрузку выше). */
 
     /* 4 — финансовый отчёт реализации, НОВЫЙ метод WB:
        POST https://finance-api.wildberries.ru/api/finance/v1/sales-reports/detailed
@@ -291,14 +304,6 @@ async function loadFromWB(){
       const e=reps.get(id)||{id,create:r.createDate,from:r.dateFrom,to:r.dateTo,sum:0};
       e.sum+=Math.abs(num(r.deduction));reps.set(id,e);
     });
-    /* Предмет берём прямо из ответа WB: в строках продаж есть vendorCode (артикул продавца)
-       и subjectName (предмет). Строим карту артикул(нижний регистр) -> предмет.
-       Справочник для предмета больше не нужен. */
-    all.forEach(r=>{
-      const vc=(r.vendorCode||'').trim();
-      const sn=(r.subjectName||'').trim();
-      if(vc&&sn){const k=vc.toLowerCase();if(!subjMap.has(k))subjMap.set(k,sn);}
-    });
     /* пропорция по дням: переходной отчёт 28.03–03.04 при анализе апреля → 3/7 суммы */
     const msS=new Date(start+'T00:00:00').getTime(),msE=new Date(end+'T00:00:00').getTime(),DAY=864e5;
     const weeks=[...reps.values()].filter(w=>w.sum>0).map(w=>{
@@ -320,7 +325,7 @@ async function loadFromWB(){
     /* 5 — заполняем таблицы */
     ordBody.innerHTML='';wkBody.innerHTML='';
     [...spendByArt.entries()].filter(([_,v])=>v>0).sort((a,b)=>b[1]-a[1])
-      .forEach(([art,spend])=>addOrd(art,subjMap.get(String(art).trim().toLowerCase())||'',Math.round(spend)));
+      .forEach(([art,spend])=>addOrd(art,artLookup(art).predmet||'',Math.round(spend)));
     const transit=[];
     weeks.forEach(w=>{
       const createISO=String(w.create).slice(0,7);
@@ -377,7 +382,11 @@ function run(){
   HEADER=incPeriod
     ?['Дата','Период отчёта','Предмет','Артикул продавца','Предмет;Артикул продавца','Что','Что (группа)','Конкретнее','Сумма']
     :['Дата','Предмет','Артикул продавца','Предмет;Артикул продавца','Что','Что (группа)','Конкретнее','Сумма'];
-  RESULT={rows,incPeriod,dec};
+  /* кабинет и месяц для имени выгружаемого файла */
+  const cabName=segVal('segCab')==='api2'?'EZFR':'EF';
+  const monthVal=document.getElementById('month').value||'';           // YYYY-MM
+  const monthTag=monthVal?monthVal.slice(5,7)+'.'+monthVal.slice(0,4):'';  // MM.YYYY
+  RESULT={rows,incPeriod,dec,cabName,monthTag};
   render(top,weeks,rows,dec,totalAll,baseTop);
 }
 function render(top,weeks,rows,dec,totalAll,baseTop){
@@ -410,7 +419,13 @@ function toAOA(){const A=[HEADER.slice()];RESULT.rows.forEach(r=>{
   const base=RESULT.incPeriod?[r.date,r.period,r.subject,r.sku,r.key,r.what,r.group,r.spec]
                              :[r.date,r.subject,r.sku,r.key,r.what,r.group,r.spec];
   base.push(Number(r.sum.toFixed(RESULT.dec)));A.push(base);});return A;}
-function exXlsx(){if(!RESULT)return;const ws=XLSX.utils.aoa_to_sheet(toAOA());const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'PromoSplit');XLSX.writeFile(wb,'promo_split.xlsx');}
+function exportName(ext){
+  const parts=['promo_split'];
+  if(RESULT&&RESULT.cabName)parts.push(RESULT.cabName);
+  if(RESULT&&RESULT.monthTag)parts.push(RESULT.monthTag);
+  return parts.join(' ')+'.'+ext;   // напр. "promo_split EF 08.2026.xlsx"
+}
+function exXlsx(){if(!RESULT)return;const ws=XLSX.utils.aoa_to_sheet(toAOA());const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'PromoSplit');XLSX.writeFile(wb,exportName('xlsx'));}
 function exTsv(){if(!RESULT)return;const tsv=toAOA().map(r=>r.join('\t')).join('\n');navigator.clipboard.writeText(tsv).then(()=>{const b=document.getElementById('tsvBtn'),t=b.textContent;b.textContent='Скопировано ✓';setTimeout(()=>b.textContent=t,1600);},()=>alert('Не удалось — выгрузите XLSX'));}
-function exCsv(){if(!RESULT)return;const q=v=>{const s=String(v);return /[",;\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};const csv=toAOA().map(r=>r.map(q).join(',')).join('\r\n');const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='promo_split.csv';a.click();}
+function exCsv(){if(!RESULT)return;const q=v=>{const s=String(v);return /[",;\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};const csv=toAOA().map(r=>r.map(q).join(',')).join('\r\n');const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=exportName('csv');a.click();}
 </script>
