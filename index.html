@@ -106,8 +106,8 @@ const C_WHAT="Маркетинг",C_GROUP="Реклама",C_SPEC="реклам�
    api1 = EF, api2 = EZFR. Используются только для «глубины» в ключе «Предмет;Артикул».
    Предмет берётся напрямую из ответа WB, справочник для него не нужен. */
 const SHEET_URLS={
-  api1:"https://docs.google.com/spreadsheets/d/1rGjangN77xW_BTrY3GOUsc91xd0FghgE6fRzt4V__bc/gviz/tq?tqx=out:csv&gid=1840530356",
-  api2:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQuVvUEHyqdVP2ZHULOoeNyKdJrnI5qHcp8EI9uEns-xFfRaH_OifbV4yZEqeS_1a7CBVKMQ2TYi9pp/pub?gid=1840530464&single=true&output=csv"
+  api1:"https://docs.google.com/spreadsheets/d/e/2PACX-1vRd-F9AS2AOqG3-_39PX6jHwU-5fYDYuojWhuz07tZM7qkIxxCZriy-fQiqxmwYPFm3Za82g-dU1T7B/pub?gid=1840530356&single=true&output=csv",
+  api2:"https://docs.google.com/spreadsheets/d/e/2PACX-1vQuVvUEHyqdVP2ZHULOoeNyKdJrnI5qHcp8EI9uEns-xFfRaH_OifbV4yZEqeS_1a7CBVKMQ2TYi9pp/pub?gid=1840530356&single=true&output=csv"
 };
 /* Пер-кабинетные исключения категоризации: точное совпадение артикула (кампании).
    Ключ — имя кабинета (api1=EF, api2=EZFR). Совпадает ТОЛЬКО артикул, равный when. */
@@ -147,26 +147,28 @@ const FIN="https://finance-api.wildberries.ru";   // новый хост фин�
 let artMap=new Map();
 function parseCSVLine(line){const r=[];let c='',q=false;for(const ch of line){if(ch==='"')q=!q;else if(ch===','&&!q){r.push(c);c='';}else if(ch!=='\r')c+=ch;}r.push(c);return r;}
 function loadArticleCSV(text){
-  const m=new Map(),lines=text.split('\n');if(!lines.length)return m;
+  const m=new Map();text=text.replace(/^\uFEFF/,'');const lines=text.split('\n');if(!lines.length)return m;
   const hdr=parseCSVLine(lines[0]).map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase());
-  const iP=hdr.findIndex(h=>/предмет/.test(h));
-  const iC=hdr.findIndex(h=>/артикул\s*пост|артикул поставщ/i.test(h));
-  const iD=hdr.findIndex(h=>/глубин/i.test(h));
+  const iP=hdr.findIndex(h=>/предмет/.test(h));                       // B: Предмет
+  const iC=hdr.findIndex(h=>/артикул\s*пост|артикул поставщ/i.test(h)); // C: Артикул поставщика (ключ поиска)
+  const iD=hdr.findIndex(h=>/глубин/i.test(h));                       // D: Артикул.Глубина (готовое значение)
   console.log('Sheet headers:',hdr,'→ Предмет='+iP+', Арт.пост='+iC+', Глубина='+iD);
   if(iC<0){console.warn('Колонка «Артикул поставщика» не найдена в заголовках:',hdr);return m;}
   let withG=0;
   for(let i=1;i<lines.length;i++){
     const r=parseCSVLine(lines[i]);
-    const pred=iP>=0?(r[iP]||'').trim().replace(/^"|"$/g,''):'';
-    const artC=(r[iC]||'').trim().replace(/^"|"$/g,'');
-    const glub=iD>=0?(r[iD]||'').trim().replace(/^"|"$/g,''):'';
+    const pred=iP>=0?(r[iP]||'').trim().replace(/^"|"$/g,''):'';   // Предмет
+    const artC=(r[iC]||'').trim().replace(/^"|"$/g,'');            // Артикул поставщика
+    const glub=iD>=0?(r[iD]||'').trim().replace(/^"|"$/g,''):'';   // Артикул.Глубина (готовый ключ)
     if(artC){m.set(artC.toLowerCase(),{predmet:pred,glubina:glub});if(glub)withG++;}
   }
   console.log(`Sheet parsed: ${m.size} артикулов, Глубина заполнена у ${withG}`);
   return m;
 }
 function artLookup(sku){const a=artMap.get(String(sku).trim().toLowerCase());return a||{predmet:'',glubina:''};}
-function buildKey(sku,subj){const a=artLookup(sku);const pred=a.predmet||subj;return pred+(a.glubina||'');}
+/* Колонка «Предмет;Артикул продавца» = готовое значение «Артикул.Глубина» из справочника.
+   Если в справочнике его нет — подстраховка: предмет + артикул. */
+function buildKey(sku,subj){const a=artLookup(sku);return a.glubina||((a.predmet||subj||'')+';'+sku);}
 const ordBody=document.querySelector('#ordTbl tbody');
 const wkBody=document.querySelector('#wkTbl tbody');
 function addOrd(sku='',subj='',val=''){const tr=document.createElement('tr');tr.innerHTML=`<td><input class="mono" value="${sku}" placeholder="Pantal.SK.01"></td><td><input value="${subj}" placeholder="Футболки"></td><td><input class="mono" inputmode="numeric" value="${val}" placeholder="5000"></td><td class="del"><button class="xbtn" onclick="this.closest('tr').remove()">×</button></td>`;ordBody.appendChild(tr);}
