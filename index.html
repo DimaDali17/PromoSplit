@@ -166,9 +166,9 @@ function loadArticleCSV(text){
   return m;
 }
 function artLookup(sku){const a=artMap.get(String(sku).trim().toLowerCase());return a||{predmet:'',glubina:''};}
-/* Колонка «Предмет;Артикул продавца» = готовое значение «Артикул.Глубина» из справочника.
-   Если в справочнике его нет — подстраховка: предмет + артикул. */
-function buildKey(sku,subj){const a=artLookup(sku);return a.glubina||((a.predmet||subj||'')+';'+sku);}
+/* Колонка «Предмет;Артикул продавца» = «Предмет» + ";" + «Артикул.Глубина» из справочника,
+   напр. "Туники;Pareo.EFV.rubah.white". Если чего-то в справочнике нет — подставляем что есть. */
+function buildKey(sku,subj){const a=artLookup(sku);const pred=a.predmet||subj||'';const depth=a.glubina||sku;return pred+';'+depth;}
 const ordBody=document.querySelector('#ordTbl tbody');
 const wkBody=document.querySelector('#wkTbl tbody');
 function addOrd(sku='',subj='',val=''){const tr=document.createElement('tr');tr.innerHTML=`<td><input class="mono" value="${sku}" placeholder="Pantal.SK.01"></td><td><input value="${subj}" placeholder="Футболки"></td><td><input class="mono" inputmode="numeric" value="${val}" placeholder="5000"></td><td class="del"><button class="xbtn" onclick="this.closest('tr').remove()">×</button></td>`;ordBody.appendChild(tr);}
