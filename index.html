@@ -279,8 +279,14 @@ async function loadFromWB(){
        последней строки, повторяем пока не придёт 204. Суммы приходят строками (тип S).
        Берём период ±10 дней вокруг месяца, чтобы поймать переходные недели. */
     st.textContent='Загружаю финансовый отчёт…';
-    const wide0=new Date(y,m-1,-9).toISOString().slice(0,10);
-    const wide1=new Date(y,m,10).toISOString().slice(0,10);
+    /* Окно ЗАПРОСА: 1-е число месяца −9 дней … последнее число +14 дней.
+       Запас ВПЕРЁД важен: переходная неделя (напр. 26.10–01.11) закрывается уже
+       в следующем месяце, и WB формирует её отчёт позже — узкое окно его не достанет.
+       Считаем через Date.UTC, иначе .toISOString() в UTC+3 сдвигает границы на день.
+       Что из окна реально зачесть в месяц и в какой доле — решает overlap ниже. */
+    const toUTC=(dd)=>new Date(Date.UTC(y,m-1,dd)).toISOString().slice(0,10);
+    const wide0=toUTC(1-9);        // первое число − 9 дней
+    const wide1=toUTC(endD+14);    // последнее число + 14 дней
     // просим только нужные поля — ответ легче и быстрее
     const FIN_FIELDS=['reportId','createDate','dateFrom','dateTo','sellerOperName','bonusTypeName','docTypeName','deduction','rrdId'];
     let rrd=0,all=[],guard=0;
@@ -318,6 +324,22 @@ async function loadFromWB(){
       const factor=overD/totalD;
       return{...w,rawSum:w.sum,sum:w.sum*factor,factor,overD,totalD};
     }).filter(Boolean).sort((a,b)=>new Date(a.create)-new Date(b.create));
+    /* ── ДИАГНОСТИКА переходных недель ──────────────────────────────────────
+       Показываем ВСЕ промо-отчёты из окна, в т.ч. НЕ пересёкшиеся с месяцем
+       (их отбрасывает фильтр overD<=0). Если WB пометил неделю, календарно
+       относящуюся к этому месяцу, периодом следующего месяца — увидим её здесь
+       со строкой overD=0. По этому выводу доделаем точное правило. */
+    const diag=[...reps.values()].filter(w=>w.sum>0).map(w=>{
+      const rf=new Date(String(w.from).slice(0,10)+'T00:00:00').getTime();
+      const rt=new Date(String(w.to).slice(0,10)+'T00:00:00').getTime();
+      const totalD=Math.round((rt-rf)/DAY)+1;
+      const oA=Math.max(rf,msS),oB=Math.min(rt,msE);
+      const overD=oB>=oA?Math.round((oB-oA)/DAY)+1:0;
+      return{from:String(w.from).slice(0,10),to:String(w.to).slice(0,10),create:String(w.create).slice(0,10),sum:Math.round(w.sum),totalD,overD};
+    }).sort((a,b)=>a.from<b.from?-1:1);
+    console.log('[PromoSplit] Все промо-отчёты в окне ('+wide0+'…'+wide1+'):');console.table(diag);
+    const dropped=diag.filter(d=>d.overD<=0);
+    if(dropped.length)console.warn('[PromoSplit] Отброшены (период вне месяца):',dropped);
     if(!weeks.length){
       const ops=new Set(),bns=new Set(),docs=new Set();
       all.filter(r=>Math.abs(num(r.deduction))>0).forEach(r=>{ops.add(r.sellerOperName||'');bns.add(r.bonusTypeName||'');docs.add(r.docTypeName||'');});
@@ -337,7 +359,8 @@ async function loadFromWB(){
       if(w.factor<0.999)transit.push(per+': '+w.overD+'/'+w.totalD+' дн = '+Math.round(w.factor*100)+'% от '+fmt(w.rawSum,0));
     });
     const tNote=transit.length?' Переходные: '+transit.join('; ')+'.':'';
-    st.textContent=`Готово: ${spendByArt.size} артикулов, ${weeks.length} отчётов.${tNote}`;
+    const dNote=dropped.length?' ⚠ Отброшены (период помечен вне месяца, см. консоль F12): '+dropped.map(d=>d.from+'–'+d.to+' ('+fmt(d.sum,0)+' ₽, создан '+d.create+')').join('; ')+'.':'';
+    st.textContent=`Готово: ${spendByArt.size} артикулов, ${weeks.length} отчётов.${tNote}${dNote}`;
     run();
   }catch(e){st.className='status err';st.textContent='Ошибка: '+e.message;}
   finally{btn.disabled=false;}
